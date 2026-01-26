@@ -10,7 +10,11 @@ const Login = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === 'admin' && password === 'admin') {
+    // Normalize inputs: trim whitespace and treat username as case-insensitive
+    const cleanUsername = username.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    if (cleanUsername === 'admin' && cleanPassword === 'admin') {
       sessionStorage.setItem('wings_auth', 'true');
       toast.success('Welcome back!');
       navigate('/dashboard');
@@ -29,7 +33,7 @@ const Login = () => {
           <h2 className="text-2xl font-bold text-white">Wings Coaching Center</h2>
           <p className="text-blue-200 mt-2">Attendance Management System</p>
         </div>
-        
+
         <form onSubmit={handleLogin} className="p-8 space-y-6">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
@@ -65,7 +69,7 @@ const Login = () => {
           >
             Sign In
           </button>
-          
+
           <div className="text-center text-xs text-slate-400 mt-4">
             Default: admin / admin
           </div>

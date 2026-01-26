@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Users, 
-  FileBarChart, 
-  Settings, 
-  LogOut, 
-  Menu, 
+import {
+  LayoutDashboard,
+  Users,
+  FileBarChart,
+  Settings,
+  LogOut,
+  Menu,
   X,
   GraduationCap
 } from 'lucide-react';
@@ -22,6 +22,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const handleLogout = () => {
     sessionStorage.removeItem('wings_auth');
+    localStorage.removeItem('wings_auth');
     navigate('/login');
   };
 
@@ -49,14 +50,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Sidebar Overlay for Mobile */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
           onClick={closeSidebar}
         />
       )}
 
       {/* Sidebar */}
-      <aside 
+      <aside
         className={`
           fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl transform transition-transform duration-300 ease-in-out
           md:relative md:translate-x-0
@@ -83,8 +84,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   onClick={closeSidebar}
                   className={`
                     flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium
-                    ${isActive 
-                      ? 'bg-blue-50 text-primary border-l-4 border-primary' 
+                    ${isActive
+                      ? 'bg-blue-50 text-primary border-l-4 border-primary'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-primary'}
                   `}
                 >

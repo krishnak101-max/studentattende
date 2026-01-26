@@ -11,7 +11,11 @@ import AdminTools from './components/AdminTools';
 
 // Simple Auth Context Logic
 const ProtectedRoute = ({ children }: { children?: React.ReactNode }) => {
-  const isAuth = sessionStorage.getItem('wings_auth') === 'true';
+  const isAuth = sessionStorage.getItem('wings_auth') === 'true' || localStorage.getItem('wings_auth') === 'true';
+  // Sync session if local exists (for session consistency if needed later)
+  if (localStorage.getItem('wings_auth') === 'true' && sessionStorage.getItem('wings_auth') !== 'true') {
+    sessionStorage.setItem('wings_auth', 'true');
+  }
   return isAuth ? <>{children}</> : <Navigate to="/login" replace />;
 };
 

@@ -14,7 +14,7 @@ const Login = () => {
     const cleanUsername = username.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    if (cleanUsername === 'admin' && cleanPassword === 'admin') {
+    if (cleanUsername === 'wings' && cleanPassword === 'wingster123') {
       sessionStorage.setItem('wings_auth', 'true');
       toast.success('Welcome back!');
       navigate('/dashboard');
@@ -71,7 +71,7 @@ const Login = () => {
           </button>
 
           <div className="text-center text-xs text-slate-400 mt-4">
-            Default: admin / admin
+            Default: wings / wingster123
           </div>
         </form>
       </div>

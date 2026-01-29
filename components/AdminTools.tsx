@@ -1,25 +1,32 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import toast from 'react-hot-toast';
-import Papa from 'papaparse';
 
 const AdminTools = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [storedPassword, setStoredPassword] = useState('');
+
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput === 'wings2026') {
+      setIsAuthenticated(true);
+      setStoredPassword(passwordInput);
+      toast.success("Admin Panel Unlocked");
+    } else {
+      toast.error("Incorrect Admin Password");
+      setPasswordInput('');
+    }
+  };
 
   const performSecureAction = async (actionType: 'CLEAR_ATTENDANCE' | 'FULL_RESET') => {
-    // 1. Ask for Password
-    const password = prompt("Enter Admin Password to proceed with this critical action:");
-
-    if (!password) {
-      toast.error("Password required");
-      return;
-    }
-
-    // 2. Local Check (Optional, for instant feedback) - The real check is in the DB
-    if (password !== 'wings2026') {
-      toast.error("Incorrect Password!");
+    // We use the stored password from the login step
+    if (!storedPassword) {
+      toast.error("Session expired. Please unlock again.");
+      setIsAuthenticated(false);
       return;
     }
 
@@ -29,19 +36,21 @@ const AdminTools = () => {
         toast.error("Action cancelled.");
         return;
       }
+    } else {
+      if (!confirm("Are you sure you want to delete all attendance records?")) return;
     }
 
     setIsLoading(true);
     try {
       let rpcName = actionType === 'CLEAR_ATTENDANCE' ? 'clear_all_attendance' : 'reset_full_system';
 
-      // Call the Secure RPC with password
-      const { error } = await supabase.rpc(rpcName, { password_attempt: password });
+      // Call the Secure RPC with the stored password
+      const { error } = await supabase.rpc(rpcName, { password_attempt: storedPassword });
 
       if (error) {
-        // Handle custom SQL errors
         if (error.message.includes('Invalid Admin Password')) {
-          toast.error("Server Rejected: Invalid Password");
+          toast.error("Security Check Failed: Invalid Password");
+          setIsAuthenticated(false); // Force re-login
         } else {
           throw error;
         }
@@ -59,7 +68,6 @@ const AdminTools = () => {
   const handleBackup = async () => {
     setBackupLoading(true);
     try {
-      // Fetch all data
       const { data: students, error: sErr } = await supabase.from('students').select('*');
       const { data: attendance, error: aErr } = await supabase.from('attendance').select('*');
 
@@ -71,7 +79,6 @@ const AdminTools = () => {
         attendance
       };
 
-      // Create JSON Blob
       const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -81,8 +88,7 @@ const AdminTools = () => {
       link.click();
       document.body.removeChild(link);
 
-      toast.success("Backup Downloaded! Save this file safely.");
-
+      toast.success("Backup Downloaded");
     } catch (error) {
       toast.error("Backup failed");
       console.error(error);
@@ -91,16 +97,57 @@ const AdminTools = () => {
     }
   };
 
+  // LOCKED STATE UI
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto mt-12 p-8 bg-white rounded-2xl shadow-lg border border-slate-100 text-center">
+        <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Lock className="h-8 w-8 text-indigo-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">Admin Locked</h2>
+        <p className="text-slate-500 mb-6">Enter the security password to access sensitive controls.</p>
+
+        <form onSubmit={handleUnlock} className="space-y-4">
+          <input
+            type="password"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            placeholder="Enter Admin Password"
+            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all text-center text-lg tracking-widest"
+            autoFocus
+          />
+          <button
+            type="submit"
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            <Unlock className="h-4 w-4" />
+            Unlock Panel
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  // UNLOCKED STATE UI
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Shield className="h-6 w-6 text-indigo-600" />
           Admin & Security
         </h1>
-        <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold border border-indigo-100">
-          SECURED
+        <div className="flex items-center gap-4">
+          <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold border border-indigo-100 flex items-center gap-1">
+            <Unlock className="h-3 w-3" /> UNLOCKED
+          </div>
+          <button
+            onClick={() => setIsAuthenticated(false)}
+            className="text-sm text-slate-400 hover:text-slate-600 underline"
+          >
+            Lock
+          </button>
         </div>
+
       </div>
 
       {/* Backup Section */}
@@ -137,7 +184,7 @@ const AdminTools = () => {
             <div>
               <h3 className="text-lg font-bold text-red-800">Danger Zone</h3>
               <p className="text-red-600/80 text-sm">
-                Actions here are destructive and require the <b>Admin Password</b>.
+                Actions here are destructive. Handle with care.
               </p>
             </div>
           </div>

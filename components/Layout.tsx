@@ -8,7 +8,8 @@ import {
   LogOut,
   Menu,
   X,
-  GraduationCap
+  GraduationCap,
+  CalendarOff
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -30,6 +31,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/dashboard', label: 'Attendance', icon: LayoutDashboard },
     { path: '/students', label: 'Students', icon: Users },
     { path: '/reports', label: 'Reports', icon: FileBarChart },
+    { path: '/absentees', label: 'Chronic Absentees', icon: CalendarOff }, // NEW
     { path: '/admin', label: 'Admin Tools', icon: Settings },
   ];
 

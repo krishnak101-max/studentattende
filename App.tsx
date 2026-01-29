@@ -7,6 +7,7 @@ import Dashboard from './components/Dashboard';
 import Attendance from './components/Attendance';
 import Students from './components/Students';
 import Reports from './components/Reports';
+import Absentees from './components/Absentees';
 import AdminTools from './components/AdminTools';
 
 // Simple Auth Context Logic
@@ -35,6 +36,7 @@ function App() {
                     <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/attendance" element={<Attendance />} />
                     <Route path="/students" element={<Students />} />
+                    <Route path="/absentees" element={<Absentees />} />
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/admin" element={<AdminTools />} />
                   </Routes>

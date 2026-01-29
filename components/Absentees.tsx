@@ -14,6 +14,8 @@ interface AbsenteeStudent {
     total_absent: number;
     last_10_statuses: string[];
     consecutive_days: number;
+    weekly_count: number; // Absences in last 6 working days
+    risk_type: 'CONSECUTIVE' | 'FREQUENT' | 'BOTH';
 }
 
 const Absentees = () => {
@@ -32,31 +34,45 @@ const Absentees = () => {
 
             if (error) throw error;
 
-            // Process Data in JS to find Streaks
+            // Process Data
             const processed = (data || []).map((s: any) => {
                 const statuses = s.last_10_statuses || [];
-                let streak = 0;
 
-                // Count consecutive 'Absent' from the start (most recent)
+                // 1. Calculate Consecutive Streak (from start)
+                let streak = 0;
                 for (let status of statuses) {
-                    if (status === 'Absent') {
-                        streak++;
-                    } else {
-                        break; // Stop at first non-absent
-                    }
+                    if (status === 'Absent') streak++;
+                    else break;
                 }
+
+                // 2. Calculate "Weekly" Frequency (Absences in last 6 working days)
+                // We consider 6 days as a standard coaching week
+                const last6Days = statuses.slice(0, 6);
+                const weeklyCount = last6Days.filter((st: string) => st === 'Absent').length;
+
+                // Determine Risk
+                let risk: 'CONSECUTIVE' | 'FREQUENT' | 'BOTH' | null = null;
+
+                const isConsecutive = streak >= 3;
+                const isFrequent = weeklyCount > 2; // More than 2 times (i.e. 3+)
+
+                if (isConsecutive && isFrequent) risk = 'BOTH';
+                else if (isConsecutive) risk = 'CONSECUTIVE';
+                else if (isFrequent) risk = 'FREQUENT';
 
                 return {
                     ...s,
-                    consecutive_days: streak
+                    consecutive_days: streak,
+                    weekly_count: weeklyCount,
+                    risk_type: risk
                 };
-            }).filter((s: AbsenteeStudent) => s.consecutive_days >= 3); // Filter for 3+ days
+            }).filter((s: AbsenteeStudent) => s.risk_type !== null); // Keep if any risk
 
             setAbsentees(processed);
 
         } catch (error) {
             console.error(error);
-            toast.error("Failed to load absentee data. Run the SQL script.");
+            toast.error("Failed to load data.");
         } finally {
             setLoading(false);
         }
@@ -74,34 +90,41 @@ const Absentees = () => {
 
         // Header
         doc.setFontSize(20);
-        doc.setTextColor(41, 128, 185); // Blue
-        doc.text("Continuous Absence Report", 14, 22);
+        doc.setTextColor(41, 128, 185);
+        doc.text("Absentee & Risk Report", 14, 22);
 
-        doc.setFontSize(12);
+        doc.setFontSize(10);
         doc.setTextColor(100);
-        doc.text(`Batch: ${batch}`, 14, 32);
-        doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 38);
-        doc.text(`Criteria: Absent for 3+ consecutive days`, 14, 44);
+        doc.text(`Batch: ${batch} | Date: ${new Date().toLocaleDateString()}`, 14, 32);
+        doc.text(`Criteria: 3+ Consecutive Absences OR >2 Absences in last week`, 14, 38);
 
         // Table
-        const tableColumn = ["Roll No", "Student Name", "Consecutive Days", "Total Absences (All Time)"];
-        const tableRows = students.map(s => [
-            s.roll_number || '-',
-            s.name,
-            `${s.consecutive_days} Days`,
-            s.total_absent
-        ]);
+        const tableColumn = ["Roll No", "Name", "Risk Issue", "Recent Pattern", "Total"];
+        const tableRows = students.map(s => {
+            let issue = "";
+            if (s.risk_type === 'CONSECUTIVE') issue = `Streak: ${s.consecutive_days} Days`;
+            else if (s.risk_type === 'FREQUENT') issue = `Frequent: ${s.weekly_count}/6 Days`;
+            else issue = `CRITICAL: ${s.consecutive_days} Day Streak`;
+
+            return [
+                s.roll_number || '-',
+                s.name,
+                issue,
+                s.last_10_statuses.slice(0, 7).map((st: string) => st === 'Absent' ? 'A' : 'P').join('-'),
+                s.total_absent
+            ];
+        });
 
         (doc as any).autoTable({
-            startY: 50,
+            startY: 45,
             head: [tableColumn],
             body: tableRows,
             theme: 'grid',
-            headStyles: { fillColor: [231, 76, 60] }, // Red header for danger
-            styles: { fontSize: 10, cellPadding: 3 }
+            headStyles: { fillColor: [231, 76, 60] },
+            styles: { fontSize: 9, cellPadding: 3 }
         });
 
-        doc.save(`Absence_Report_${batch}_${new Date().toISOString().slice(0, 10)}.pdf`);
+        doc.save(`Risk_Report_${batch}_${new Date().toISOString().slice(0, 10)}.pdf`);
         toast.success("Report Downloaded");
     };
 
@@ -111,10 +134,10 @@ const Absentees = () => {
             <div className="space-y-6 animate-in fade-in duration-300">
                 <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                     <CalendarOff className="h-7 w-7 text-red-600" />
-                    Chronic Absentees
+                    Absentee Risk Analysis
                 </h1>
-                <p className="text-slate-500">
-                    Students who have been absent for <b>3 or more consecutive school days</b>.
+                <p className="text-slate-500 max-w-2xl">
+                    Identifying students with <b>Continuous Absences (3+)</b> OR <b>Frequent Irregular Absences</b> (3+ in last week).
                 </p>
 
                 {loading ? (
@@ -143,7 +166,7 @@ const Absentees = () => {
                                         <span className={`text-4xl font-black ${count > 0 ? 'text-red-600' : 'text-slate-300'}`}>
                                             {count}
                                         </span>
-                                        <span className="text-sm text-slate-400 font-medium mb-2">Students</span>
+                                        <span className="text-sm text-slate-400 font-medium mb-2">Risks Found</span>
                                     </div>
 
                                     {count > 0 && (
@@ -175,7 +198,7 @@ const Absentees = () => {
                         <h1 className="text-2xl font-bold text-slate-800">Batch {selectedBatch}</h1>
                         <p className="text-red-600 font-medium flex items-center gap-1 text-sm">
                             <AlertCircle className="h-4 w-4" />
-                            {batchStudents.length} Critical Cases Found
+                            {batchStudents.length} Risk Cases
                         </p>
                     </div>
                 </div>
@@ -192,17 +215,18 @@ const Absentees = () => {
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 {batchStudents.length === 0 ? (
                     <div className="p-8 text-center text-slate-500">
-                        No students in this batch have 3+ consecutive absences.
+                        No risk cases found in this batch.
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-red-50 text-red-900 border-b border-red-100">
+                            <thead className="bg-slate-50 text-slate-700 border-b border-slate-200">
                                 <tr>
                                     <th className="px-6 py-4 font-bold">Roll No</th>
                                     <th className="px-6 py-4 font-bold">Student Name</th>
-                                    <th className="px-6 py-4 font-bold">Consecutive Days</th>
-                                    <th className="px-6 py-4 font-bold">Total Absences</th>
+                                    <th className="px-6 py-4 font-bold">Risk Type</th>
+                                    <th className="px-6 py-4 font-bold">Details</th>
+                                    <th className="px-6 py-4 font-bold">Total Absent</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -215,12 +239,35 @@ const Absentees = () => {
                                             {student.name}
                                         </td>
                                         <td className="px-6 py-4">
-                                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-bold">
-                                                {student.consecutive_days} Days
-                                            </span>
+                                            {student.risk_type === 'CONSECUTIVE' && (
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                                    Consecutive
+                                                </span>
+                                            )}
+                                            {student.risk_type === 'FREQUENT' && (
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                                    Frequent
+                                                </span>
+                                            )}
+                                            {student.risk_type === 'BOTH' && (
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                                    Critical
+                                                </span>
+                                            )}
                                         </td>
-                                        <td className="px-6 py-4 text-slate-600 font-medium">
-                                            {student.total_absent} Days (All Time)
+                                        <td className="px-6 py-4 text-sm text-slate-600">
+                                            {student.risk_type === 'CONSECUTIVE' && (
+                                                <span>Absent for last <b>{student.consecutive_days}</b> classes</span>
+                                            )}
+                                            {student.risk_type === 'FREQUENT' && (
+                                                <span>Absent <b>{student.weekly_count}</b> times in last 6 days</span>
+                                            )}
+                                            {student.risk_type === 'BOTH' && (
+                                                <span><b>{student.consecutive_days}</b> day streak (Critical)</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-slate-600 font-mono text-xs">
+                                            {student.total_absent}
                                         </td>
                                     </tr>
                                 ))}

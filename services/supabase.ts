@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 
 // Credentials provided in instructions
 // Ideally, these should come from import.meta.env for Vercel deployment
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://fdukfgakxxtzonfoznon.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkdWtmZ2FreHh0em9uZm96bm9uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5NDY0OTMsImV4cCI6MjA4NTUyMjQ5M30.ID0404KGwNTJk3nXAqwFtI6-Zrg1OurhtDT3kTjc7Mg';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://qvzzlpcbeauppwhyixli.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2enpscGNiZWF1cHB3aHlpeGxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkzNDA3MjksImV4cCI6MjA4NDkxNjcyOX0.4pwfm9AwsvswJD8pOPn-5S2jylVyRj8euMlBmIAt380';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 

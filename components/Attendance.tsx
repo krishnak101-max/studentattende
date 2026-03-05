@@ -1,16 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import { BATCHES, AttendanceRecord } from '../types';
-import { Calendar as CalendarIcon, Save, Search, Share2, Check, X, CheckSquare, Square, ArrowLeft } from 'lucide-react';
+import { AttendanceRecord } from '../types';
+import { useBatches } from '../context/BatchContext';
+import { Calendar as CalendarIcon, Save, Search, Check, X, CheckSquare, Square, ArrowLeft, AlertCircle, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Attendance = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const [selectedBatch, setSelectedBatch] = useState(searchParams.get('batch') || BATCHES[0]);
-    const [selectedDate, setSelectedDate] = useState(format(new Date(), 'dd-MM-yyyy'));
+    const { activeBatches } = useBatches();
+    const BATCHES = activeBatches.map(b => b.name);
+
+    // Use URL params if coming from dashboard
+    const [selectedDate, setSelectedDate] = useState(searchParams.get('date') || format(new Date(), 'dd-MM-yyyy'));
+    const [selectedBatch, setSelectedBatch] = useState(searchParams.get('batch') || '');
     const [searchQuery, setSearchQuery] = useState('');
     const [records, setRecords] = useState<AttendanceRecord[]>([]);
     const [loading, setLoading] = useState(false);

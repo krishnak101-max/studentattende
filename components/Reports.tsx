@@ -3,7 +3,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, parse } from 'date-fns';
 import { supabase } from '../services/supabase';
-import { BATCHES, StudentStats } from '../types';
+import { StudentStats } from '../types';
+import { useBatches } from '../context/BatchContext';
 import { FileDown, Search, FileText, ChevronDown, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -41,7 +42,10 @@ const Reports = () => {
 };
 
 const IndividualReport = () => {
-  const [selectedBatch, setSelectedBatch] = useState(BATCHES[0]);
+  const { activeBatches } = useBatches();
+  const BATCHES = activeBatches.map(b => b.name);
+
+  const [selectedBatch, setSelectedBatch] = useState('');
   const [batchStudents, setBatchStudents] = useState<{ id: string, name: string }[]>([]);
   const [searchName, setSearchName] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
@@ -52,6 +56,12 @@ const IndividualReport = () => {
   const [stats, setStats] = useState<StudentStats | null>(null);
   const [studentName, setStudentName] = useState('');
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (BATCHES.length > 0 && !selectedBatch) {
+      setSelectedBatch(BATCHES[0]);
+    }
+  }, [BATCHES, selectedBatch]);
 
   // Fetch students for the selected batch
   React.useEffect(() => {
@@ -287,9 +297,18 @@ const IndividualReport = () => {
 };
 
 const BatchPDFReport = () => {
-  const [batch, setBatch] = useState(BATCHES[0]);
+  const { activeBatches } = useBatches();
+  const BATCHES = activeBatches.map(b => b.name);
+
+  const [batch, setBatch] = useState('');
   const [date, setDate] = useState(format(new Date(), 'dd-MM-yyyy'));
   const [generating, setGenerating] = useState(false);
+
+  React.useEffect(() => {
+    if (BATCHES.length > 0 && !batch) {
+      setBatch(BATCHES[0]);
+    }
+  }, [BATCHES, batch]);
 
   const generatePDF = async () => {
     setGenerating(true);

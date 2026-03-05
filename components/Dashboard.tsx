@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { supabase } from '../services/supabase';
-import { BATCHES } from '../types';
-import { Users, UserCheck, Calendar, ArrowRight, Loader2 } from 'lucide-react';
+import { useBatches } from '../context/BatchContext';
+import { Users, UserCheck, Calendar, ArrowRight, Loader2, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface BatchStats {
@@ -15,18 +15,26 @@ interface BatchStats {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [stats, setStats] = useState<BatchStats[]>(BATCHES.map(b => ({
-    batch: b,
-    totalStudents: 0,
-    presentToday: 0,
-    loading: true
-  })));
+  const { activeBatches } = useBatches();
+
+  const [stats, setStats] = useState<BatchStats[]>([]);
   const [globalLoading, setGlobalLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'dd-MM-yyyy'));
+  const [newRegistrations, setNewRegistrations] = useState(0);
 
   useEffect(() => {
-    fetchStats();
-  }, [selectedDate]); // Refetch when date changes
+    if (activeBatches.length > 0) {
+      if (stats.length === 0) {
+        setStats(activeBatches.map(b => ({
+          batch: b.name,
+          totalStudents: 0,
+          presentToday: 0,
+          loading: true
+        })));
+      }
+      fetchStats();
+    }
+  }, [selectedDate, activeBatches]); // Refetch when date changes or batches loaded
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.value) return;
@@ -40,7 +48,7 @@ const Dashboard = () => {
       // 1. Fetch all students to calculate totals per batch
       const { data: students, error: sError } = await supabase
         .from('students')
-        .select('id, batch');
+        .select('id, batch, register_number');
 
       if (sError) throw sError;
 
@@ -53,8 +61,13 @@ const Dashboard = () => {
 
       if (aError) throw aError;
 
+      // Calculate new registrations (students with a proper register number)
+      const newJoinedCount = students?.filter(s => !!s.register_number).length || 0;
+      setNewRegistrations(newJoinedCount);
+
       // Calculate stats in memory
-      const newStats = BATCHES.map(batch => {
+      const newStats = activeBatches.map(batchObj => {
+        const batch = batchObj.name;
         const batchStudents = students?.filter(s => s.batch === batch) || [];
         const batchStudentIds = new Set(batchStudents.map(s => s.id));
 
@@ -101,7 +114,7 @@ const Dashboard = () => {
       </div>
 
       {/* Global Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white shadow-lg shadow-blue-200 transform transition-all hover:scale-105">
           <div className="flex justify-between items-start">
             <div>
@@ -110,6 +123,18 @@ const Dashboard = () => {
             </div>
             <div className="bg-white/20 p-3 rounded-lg backdrop-blur-sm">
               <Users className="h-6 w-6 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg shadow-purple-200 transform transition-all hover:scale-105">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-indigo-100 font-medium">New Joined</p>
+              <h3 className="text-4xl font-bold mt-2">{newRegistrations}</h3>
+            </div>
+            <div className="bg-white/20 p-3 rounded-lg backdrop-blur-sm">
+              <UserPlus className="h-6 w-6 text-white" />
             </div>
           </div>
         </div>
@@ -157,60 +182,62 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-      </div>
+      </div >
 
       {/* Class Cards Grid */}
-      <div>
+      < div >
         <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
           Details by Class
         </h2>
 
-        {globalLoading ? (
-          <div className="flex justify-center p-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {stats.map((stat) => (
-              <div
-                key={stat.batch}
-                onClick={() => navigate(`/attendance?batch=${stat.batch}&date=${selectedDate}`)}
-                className="bg-white rounded-xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-primary/30 relative overflow-hidden"
-              >
-                <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+        {
+          globalLoading ? (
+            <div className="flex justify-center p-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {stats.map((stat) => (
+                <div
+                  key={stat.batch}
+                  onClick={() => navigate(`/attendance?batch=${stat.batch}&date=${selectedDate}`)}
+                  className="bg-white rounded-xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-primary/30 relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
 
-                <div className="relative z-10">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-bold text-slate-700 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200 group-hover:bg-primary group-hover:text-white transition-colors">
-                      {stat.batch}
-                    </h3>
-                    <div className="bg-slate-100 p-2 rounded-full group-hover:bg-blue-50 transition-colors">
-                      <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-primary transition-colors" />
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-bold text-slate-700 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200 group-hover:bg-primary group-hover:text-white transition-colors">
+                        {stat.batch}
+                      </h3>
+                      <div className="bg-slate-100 p-2 rounded-full group-hover:bg-blue-50 transition-colors">
+                        <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-primary transition-colors" />
+                      </div>
+                    </div>
+
+                    <div className="flex items-end gap-2">
+                      <span className="text-4xl font-bold text-slate-800">
+                        {stat.presentToday}
+                      </span>
+                      <span className="text-slate-400 font-medium mb-1.5">
+                        / {stat.totalStudents} Present
+                      </span>
+                    </div>
+
+                    <div className="mt-4 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-primary h-full rounded-full transition-all duration-500"
+                        style={{ width: `${stat.totalStudents > 0 ? (stat.presentToday / stat.totalStudents) * 100 : 0}%` }}
+                      ></div>
                     </div>
                   </div>
-
-                  <div className="flex items-end gap-2">
-                    <span className="text-4xl font-bold text-slate-800">
-                      {stat.presentToday}
-                    </span>
-                    <span className="text-slate-400 font-medium mb-1.5">
-                      / {stat.totalStudents} Present
-                    </span>
-                  </div>
-
-                  <div className="mt-4 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="bg-primary h-full rounded-full transition-all duration-500"
-                      style={{ width: `${stat.totalStudents > 0 ? (stat.presentToday / stat.totalStudents) * 100 : 0}%` }}
-                    ></div>
-                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+              ))}
+            </div>
+          )
+        }
+      </div >
+    </div >
   );
 };
 

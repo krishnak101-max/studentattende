@@ -2,7 +2,11 @@ export interface Student {
   id: string;
   name: string;
   batch: string;
-  sex: 'Male' | 'Female';
+  sex: string; // 'Male' | 'Female'
+  medium?: string; // 'English' | 'Malayalam'
+  parent_name?: string;
+  phone_number?: string;
+  register_number?: string;
   roll_number?: string;
   created_at?: string;
 }

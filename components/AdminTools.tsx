@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock } from 'lucide-react';
+import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock, Plus, Eye, EyeOff, FileText, Calendar } from 'lucide-react';
 import { supabase } from '../services/supabase';
+import { useBatches } from '../context/BatchContext';
 import toast from 'react-hot-toast';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import { format } from 'date-fns';
 
 const AdminTools = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -9,6 +13,16 @@ const AdminTools = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [storedPassword, setStoredPassword] = useState('');
+
+  // Batch Management
+  const { batches, refreshBatches } = useBatches();
+  const [newBatchName, setNewBatchName] = useState('');
+  const [batchLoading, setBatchLoading] = useState(false);
+
+  // Registration Report
+  const [reportDate, setReportDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [reportBatch, setReportBatch] = useState('ALL');
+  const [reportLoading, setReportLoading] = useState(false);
 
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,6 +111,100 @@ const AdminTools = () => {
     }
   };
 
+  const handleAddBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBatchName.trim()) return;
+    setBatchLoading(true);
+    try {
+      const { error } = await supabase.from('batches').insert([{ name: newBatchName.toUpperCase(), is_active: true }]);
+      if (error) throw error;
+      toast.success("Batch created!");
+      setNewBatchName('');
+      await refreshBatches();
+    } catch (err: any) {
+      toast.error('Failed to create batch: ' + err.message);
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const toggleBatch = async (id: string, currentStatus: boolean) => {
+    setBatchLoading(true);
+    try {
+      const { error } = await supabase.from('batches').update({ is_active: !currentStatus }).eq('id', id);
+      if (error) throw error;
+      toast.success(currentStatus ? "Batch hidden" : "Batch visible");
+      await refreshBatches();
+    } catch (err: any) {
+      toast.error('Failed to toggle batch visibility');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleGenerateRegistrationReport = async () => {
+    setReportLoading(true);
+    try {
+      // created_at is timestamp with timezone. We can query by checking if it starts with the report date.
+      // or using greater than and less than
+      const startDate = `${reportDate}T00:00:00.000Z`;
+      const endDate = `${reportDate}T23:59:59.999Z`;
+
+      let query = supabase.from('students').select('*')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('batch', { ascending: true })
+        .order('name', { ascending: true });
+
+      if (reportBatch !== 'ALL') {
+        query = query.eq('batch', reportBatch);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast.error(`No students registered on ${reportDate} ${reportBatch !== 'ALL' ? 'for ' + reportBatch : ''}`);
+        return;
+      }
+
+      const doc = new jsPDF();
+      doc.setFontSize(16);
+      doc.text("New Registrations Report", 14, 20);
+      doc.setFontSize(11);
+      doc.text(`Date: ${reportDate}`, 14, 28);
+      doc.text(`Batch: ${reportBatch}`, 14, 34);
+      doc.text(`Total Registrations: ${data.length}`, 14, 40);
+
+      const tableData = data.map((s, index) => [
+        index + 1,
+        s.register_number || '-',
+        s.name,
+        s.batch,
+        s.sex,
+        s.phone_number || '-',
+        s.medium || '-'
+      ]);
+
+      (doc as any).autoTable({
+        startY: 45,
+        head: [['#', 'Reg No', 'Name', 'Batch', 'Sex', 'Phone', 'Medium']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229] },
+        styles: { fontSize: 9 }
+      });
+
+      doc.save(`Registrations_${reportDate}_${reportBatch}.pdf`);
+      toast.success("Report Generated");
+    } catch (err: any) {
+      toast.error('Failed to generate report');
+      console.error(err);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   // LOCKED STATE UI
   if (!isAuthenticated) {
     return (
@@ -167,6 +275,92 @@ const AdminTools = () => {
         >
           {backupLoading ? 'Downloading...' : 'Download Full Backup'}
         </button>
+      </div>
+
+      {/* Batch Management Section */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+          <Shield className="h-5 w-5 text-indigo-600" />
+          Batch Management
+        </h3>
+        <form onSubmit={handleAddBatch} className="flex gap-2 mb-6">
+          <input
+            type="text"
+            value={newBatchName}
+            onChange={e => setNewBatchName(e.target.value)}
+            placeholder="New Batch Name (e.g. S4)"
+            className="flex-1 px-4 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 uppercase"
+            disabled={batchLoading}
+          />
+          <button
+            type="submit"
+            disabled={batchLoading || !newBatchName.trim()}
+            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-300"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </form>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {batches.map(batch => (
+            <div key={batch.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+              <span className="font-bold text-slate-700">{batch.name}</span>
+              <button
+                onClick={() => toggleBatch(batch.id, batch.is_active)}
+                className={`p-1.5 rounded-full ${batch.is_active ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700' : 'bg-red-100 text-red-700 hover:bg-green-100 hover:text-green-700'}`}
+                title={batch.is_active ? "Hide Batch" : "Show Batch"}
+              >
+                {batch.is_active ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </button>
+            </div>
+          ))}
+          {batches.length === 0 && <span className="text-slate-400 text-sm italic">No batches configured</span>}
+        </div>
+      </div>
+
+      {/* Registration Report Section */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+          <FileText className="h-5 w-5 text-indigo-600" />
+          New Student Registrations Report
+        </h3>
+        <p className="text-slate-500 mb-4 text-sm">
+          Generate a PDF list of newly registered students by date and batch.
+        </p>
+        <div className="flex flex-wrap gap-4 items-end">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Registration Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="date"
+                value={reportDate}
+                onChange={e => setReportDate(e.target.value)}
+                className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Batch</label>
+            <select
+              value={reportBatch}
+              onChange={e => setReportBatch(e.target.value)}
+              className="px-4 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 bg-white"
+            >
+              <option value="ALL">All Batches</option>
+              {batches.map(b => (
+                <option key={b.id} value={b.name}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={handleGenerateRegistrationReport}
+            disabled={reportLoading}
+            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2"
+          >
+            {reportLoading ? 'Generating...' : <><Download className="h-4 w-4" /> Generate PDF</>}
+          </button>
+        </div>
       </div>
 
       {/* Danger Zone */}

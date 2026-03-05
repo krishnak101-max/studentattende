@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
-import { BATCHES } from '../types';
+import { useBatches } from '../context/BatchContext';
 import { Users, FileText, Download, ArrowLeft, AlertCircle, CalendarOff } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -22,6 +22,8 @@ const Absentees = () => {
     const [loading, setLoading] = useState(true);
     const [absentees, setAbsentees] = useState<AbsenteeStudent[]>([]);
     const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
+    const { batches } = useBatches();
+    const BATCHES = batches.map(b => b.name);
 
     useEffect(() => {
         fetchData();
@@ -151,8 +153,8 @@ const Absentees = () => {
                                     key={batch}
                                     onClick={() => setSelectedBatch(batch)}
                                     className={`relative p-6 rounded-xl border-2 transition-all text-left group hover:-translate-y-1 hover:shadow-lg ${count > 0
-                                            ? 'bg-white border-red-100 ring-1 ring-red-50 hover:border-red-300'
-                                            : 'bg-slate-50 border-slate-100 opacity-60 hover:opacity-100'
+                                        ? 'bg-white border-red-100 ring-1 ring-red-50 hover:border-red-300'
+                                        : 'bg-slate-50 border-slate-100 opacity-60 hover:opacity-100'
                                         }`}
                                 >
                                     <div className="flex justify-between items-start mb-4">

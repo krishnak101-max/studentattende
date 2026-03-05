@@ -23,21 +23,15 @@ ADD COLUMN IF NOT EXISTS medium text,
     ADD COLUMN IF NOT EXISTS parent_name text,
     ADD COLUMN IF NOT EXISTS phone_number text,
     ADD COLUMN IF NOT EXISTS register_number text;
--- 3. You can set the register number logic either manually through the dashboard
--- OR with this optional sequence approach if auto generating inside the DB:
--- CREATE SEQUENCE IF NOT EXISTS student_reg_seq START 1;
--- 
--- CREATE OR REPLACE FUNCTION generate_register_number()
--- RETURNS trigger AS $$
--- BEGIN
---   IF NEW.register_number IS NULL THEN
---     NEW.register_number := 'W26' || lpad(nextval('student_reg_seq')::text, 4, '0');
---   END IF;
---   RETURN NEW;
--- END;
--- $$ LANGUAGE plpgsql;
--- 
--- DROP TRIGGER IF EXISTS set_register_number_trigger ON public.students;
--- CREATE TRIGGER set_register_number_trigger
--- BEFORE INSERT ON public.students
--- FOR EACH ROW EXECUTE FUNCTION generate_register_number();
+-- 3. Auto Generate Admission Number (W26XXXX)
+CREATE SEQUENCE IF NOT EXISTS student_reg_seq START 1;
+CREATE OR REPLACE FUNCTION generate_register_number() RETURNS trigger AS $$ BEGIN -- If register_number is empty or null, generate a new one
+    IF NEW.register_number IS NULL
+    OR NEW.register_number = '' THEN NEW.register_number := 'W26' || lpad(nextval('student_reg_seq')::text, 4, '0');
+END IF;
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS set_register_number_trigger ON public.students;
+CREATE TRIGGER set_register_number_trigger BEFORE
+INSERT ON public.students FOR EACH ROW EXECUTE FUNCTION generate_register_number();

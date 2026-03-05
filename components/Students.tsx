@@ -57,17 +57,6 @@ const Students = () => {
         await supabase.from('students').update(payload).eq('id', editingId);
         toast.success('Student updated');
       } else {
-        // Auto generate register number W26XXXX
-        const { data: maxReg } = await supabase.from('students').select('register_number').order('register_number', { ascending: false }).limit(1);
-        let nextId = 1;
-        if (maxReg && maxReg.length > 0 && maxReg[0].register_number) {
-          const numPart = maxReg[0].register_number.replace('W26', '');
-          if (!isNaN(parseInt(numPart))) {
-            nextId = parseInt(numPart) + 1;
-          }
-        }
-        payload.register_number = `W26${nextId.toString().padStart(4, '0')}`;
-
         await supabase.from('students').insert([payload]);
         toast.success('Student added');
       }

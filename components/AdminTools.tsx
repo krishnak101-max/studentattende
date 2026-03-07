@@ -229,16 +229,19 @@ const AdminTools = () => {
         return;
       }
 
-      let message = `*New Registrations - ${reportDate}*\n`;
-      let currentBatch = '';
+      let message = `*New Registrations - ${reportDate}*\n\n`;
+      const batchCounts: Record<string, number> = {};
 
-      data.forEach((s, idx) => {
-        if (s.batch !== currentBatch) {
-          currentBatch = s.batch;
-          message += `\n*Batch: ${currentBatch}*\n`;
-        }
-        message += `${idx + 1}. ${s.name} (${s.sex}, Reg: ${s.register_number || 'N/A'})\n`;
+      data.forEach(s => {
+        batchCounts[s.batch] = (batchCounts[s.batch] || 0) + 1;
       });
+
+      Object.entries(batchCounts).forEach(([b, count]) => {
+        message += `*Batch ${b}*: ${count} student${count > 1 ? 's' : ''}\n`;
+      });
+
+      const totalCount = data.length;
+      message += `\n*Total*: ${totalCount} new registration${totalCount > 1 ? 's' : ''}`;
 
       await navigator.clipboard.writeText(message);
       toast.success("Copied to clipboard for WhatsApp!");

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock, Plus, Eye, EyeOff, FileText, Calendar } from 'lucide-react';
+import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock, Plus, Eye, EyeOff, FileText, Calendar, ClipboardCopy } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useBatches } from '../context/BatchContext';
 import toast from 'react-hot-toast';
@@ -205,6 +205,51 @@ const AdminTools = () => {
     }
   };
 
+  const handleCopyForWhatsapp = async () => {
+    setReportLoading(true);
+    try {
+      const startDate = `${reportDate}T00:00:00.000Z`;
+      const endDate = `${reportDate}T23:59:59.999Z`;
+
+      let query = supabase.from('students').select('*')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('batch', { ascending: true })
+        .order('name', { ascending: true });
+
+      if (reportBatch !== 'ALL') {
+        query = query.eq('batch', reportBatch);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast.error(`No students found for ${reportDate}`);
+        return;
+      }
+
+      let message = `*New Registrations - ${reportDate}*\n`;
+      let currentBatch = '';
+
+      data.forEach((s, idx) => {
+        if (s.batch !== currentBatch) {
+          currentBatch = s.batch;
+          message += `\n*Batch: ${currentBatch}*\n`;
+        }
+        message += `${idx + 1}. ${s.name} (${s.sex}, Reg: ${s.register_number || 'N/A'})\n`;
+      });
+
+      await navigator.clipboard.writeText(message);
+      toast.success("Copied to clipboard for WhatsApp!");
+    } catch (err) {
+      toast.error('Failed to copy');
+      console.error(err);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   // LOCKED STATE UI
   if (!isAuthenticated) {
     return (
@@ -353,13 +398,23 @@ const AdminTools = () => {
               ))}
             </select>
           </div>
-          <button
-            onClick={handleGenerateRegistrationReport}
-            disabled={reportLoading}
-            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2"
-          >
-            {reportLoading ? 'Generating...' : <><Download className="h-4 w-4" /> Generate PDF</>}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleGenerateRegistrationReport}
+              disabled={reportLoading}
+              className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2"
+            >
+              {reportLoading ? 'Processing...' : <><Download className="h-4 w-4" /> PDF</>}
+            </button>
+            <button
+              onClick={handleCopyForWhatsapp}
+              disabled={reportLoading}
+              className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:bg-slate-300 flex items-center gap-2"
+              title="Copy details to paste in WhatsApp"
+            >
+              <ClipboardCopy className="h-4 w-4" /> WA Copy
+            </button>
+          </div>
         </div>
       </div>
 

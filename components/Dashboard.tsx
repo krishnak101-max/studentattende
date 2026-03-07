@@ -191,8 +191,14 @@ const Dashboard = () => {
 
         <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg shadow-purple-200 transform transition-all hover:scale-105 flex flex-col justify-between overflow-hidden relative group">
           <div className="flex justify-between items-center mb-4">
-            <p className="text-indigo-100 font-medium">New Joined</p>
-            <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm">
+            <button
+              onClick={() => navigate('/students?add=true')}
+              className="text-indigo-100 font-medium hover:text-white underline decoration-indigo-300 underline-offset-4 flex items-center gap-1 transition-colors"
+            >
+              New Joined
+              <UserPlus className="h-4 w-4" />
+            </button>
+            <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm cursor-pointer" onClick={() => navigate('/students?add=true')} title="Click to add student">
               <UserPlus className="h-5 w-5 text-white" />
             </div>
           </div>

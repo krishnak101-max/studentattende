@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import Papa from 'papaparse';
 import { supabase } from '../services/supabase';
 import { Student } from '../types';
@@ -12,6 +13,8 @@ const Students = () => {
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
+  const location = useLocation();
 
   const { activeBatches, batches } = useBatches();
   const BATCHES = batches.map(b => b.name);
@@ -28,6 +31,14 @@ const Students = () => {
       setFormData(prev => ({ ...prev, batch: ACTIVE_BATCHES[0] }));
     }
   }, [ACTIVE_BATCHES]);
+
+  useEffect(() => {
+    if (location.search.includes('add=true')) {
+      setIsModalOpen(true);
+      // Remove query param to avoid re-opening on refresh
+      window.history.replaceState({}, '', '/students');
+    }
+  }, [location.search]);
 
   const fetchStudents = async () => {
     setLoading(true);
@@ -59,6 +70,11 @@ const Students = () => {
       } else {
         await supabase.from('students').insert([payload]);
         toast.success('Student added');
+
+        if (notifyWhatsapp) {
+          const msg = `*New Student Added*\nName: ${payload.name}\nBatch: ${payload.batch}\nSex: ${payload.sex}\nReg No: ${payload.roll_number || 'N/A'}`;
+          window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+        }
       }
       setIsModalOpen(false);
       resetForm();
@@ -437,6 +453,21 @@ const Students = () => {
                   </select>
                 </div>
               </div>
+
+              {!editingId && (
+                <div className="flex items-center gap-2 pt-2">
+                  <input
+                    type="checkbox"
+                    id="whatsapp-notify"
+                    checked={notifyWhatsapp}
+                    onChange={(e) => setNotifyWhatsapp(e.target.checked)}
+                    className="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
+                  />
+                  <label htmlFor="whatsapp-notify" className="text-sm font-medium text-slate-700 cursor-pointer">
+                    Notify via WhatsApp (Open App)
+                  </label>
+                </div>
+              )}
 
               <div className="pt-4">
                 <button type="submit" className="w-full bg-primary text-white py-2 rounded-lg font-bold hover:bg-blue-800 transition-colors">

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { supabase } from '../services/supabase';
 import { useBatches } from '../context/BatchContext';
-import { Users, UserCheck, Calendar, ArrowRight, Loader2, UserPlus } from 'lucide-react';
+import { Users, UserCheck, Calendar, ArrowRight, Loader2, UserPlus, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface BatchStats {
@@ -20,7 +22,7 @@ const Dashboard = () => {
   const [stats, setStats] = useState<BatchStats[]>([]);
   const [globalLoading, setGlobalLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'dd-MM-yyyy'));
-  const [newRegistrations, setNewRegistrations] = useState(0);
+  const [newRegStats, setNewRegStats] = useState<{ batch: string, count: number, students: any[] }[]>([]);
 
   useEffect(() => {
     if (activeBatches.length > 0) {
@@ -48,7 +50,7 @@ const Dashboard = () => {
       // 1. Fetch all students to calculate totals per batch
       const { data: students, error: sError } = await supabase
         .from('students')
-        .select('id, batch, register_number');
+        .select('id, batch, register_number, name, sex');
 
       if (sError) throw sError;
 
@@ -61,9 +63,16 @@ const Dashboard = () => {
 
       if (aError) throw aError;
 
-      // Calculate new registrations (students with a proper register number)
-      const newJoinedCount = students?.filter(s => !!s.register_number).length || 0;
-      setNewRegistrations(newJoinedCount);
+      // Calculate new registrations per batch
+      const newRegByBatch = activeBatches.map(batchObj => {
+        const batchNewStudents = students?.filter(s => !!s.register_number && s.batch === batchObj.name) || [];
+        return {
+          batch: batchObj.name,
+          count: batchNewStudents.length,
+          students: batchNewStudents
+        };
+      });
+      setNewRegStats(newRegByBatch);
 
       // Calculate stats in memory
       const newStats = activeBatches.map(batchObj => {
@@ -87,6 +96,59 @@ const Dashboard = () => {
       toast.error('Failed to load dashboard stats');
     } finally {
       setGlobalLoading(false);
+    }
+  };
+
+  const generateNewJoinPDF = (batchName: string, batchNewStudents: any[]) => {
+    try {
+      if (!batchNewStudents.length) {
+        toast.error('No new joined students in this batch');
+        return;
+      }
+
+      const doc = new jsPDF();
+      doc.setFontSize(20);
+      doc.setTextColor(30, 58, 138);
+      doc.text("Wings Coaching Center, Karakunnu", 105, 15, { align: 'center' });
+
+      doc.setFontSize(12);
+      doc.setTextColor(100);
+      doc.text(`New Joined Students Report`, 105, 22, { align: 'center' });
+
+      doc.setFontSize(10);
+      doc.setTextColor(0);
+      doc.text(`Batch: ${batchName}`, 14, 30);
+      doc.text(`Date: ${format(new Date(), 'dd-MM-yyyy')}`, 14, 35);
+
+      const sorted = [...batchNewStudents].sort((a, b) => {
+        if (a.sex !== b.sex) return (a.sex === 'Female' ? -1 : 1);
+        return a.name.localeCompare(b.name);
+      });
+
+      const tableData = sorted.map((s, idx) => [
+        (idx + 1).toString(),
+        s.register_number || '-',
+        s.name.toUpperCase(),
+        s.sex || 'Male'
+      ]);
+
+      autoTable(doc, {
+        startY: 40,
+        head: [['S.No', 'Admission No', 'Student Name', 'Sex']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 58, 138], textColor: 255 },
+        styles: { fontSize: 10 },
+        columnStyles: {
+          0: { cellWidth: 20, halign: 'center' }
+        }
+      });
+
+      doc.save(`New_Joined_${batchName}_${format(new Date(), 'dd-MM-yyyy')}.pdf`);
+      toast.success(`Generated PDF for ${batchName}`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to generate PDF');
     }
   };
 
@@ -127,15 +189,33 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg shadow-purple-200 transform transition-all hover:scale-105">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-indigo-100 font-medium">New Joined</p>
-              <h3 className="text-4xl font-bold mt-2">{newRegistrations}</h3>
+        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg shadow-purple-200 transform transition-all hover:scale-105 flex flex-col justify-between overflow-hidden relative group">
+          <div className="flex justify-between items-center mb-4">
+            <p className="text-indigo-100 font-medium">New Joined</p>
+            <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm">
+              <UserPlus className="h-5 w-5 text-white" />
             </div>
-            <div className="bg-white/20 p-3 rounded-lg backdrop-blur-sm">
-              <UserPlus className="h-6 w-6 text-white" />
-            </div>
+          </div>
+          <div className="space-y-2 max-h-[100px] overflow-y-auto pr-2 custom-scrollbar">
+            {newRegStats.length === 0 ? (
+              <p className="text-indigo-200 text-sm italic">No data</p>
+            ) : (
+              newRegStats.map(stat => (
+                <div key={stat.batch} className="flex justify-between items-center bg-white/10 px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors">
+                  <span className="font-semibold text-sm truncate">{stat.batch}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold">{stat.count}</span>
+                    <button
+                      onClick={() => generateNewJoinPDF(stat.batch, stat.students)}
+                      title="Print List"
+                      className="p-1.5 bg-white/20 hover:bg-white/40 rounded transition-colors"
+                    >
+                      <Printer className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

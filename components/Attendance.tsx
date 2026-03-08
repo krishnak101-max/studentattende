@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { AttendanceRecord } from '../types';
 import { useBatches } from '../context/BatchContext';
-import { Calendar as CalendarIcon, Save, Search, Check, X, CheckSquare, Square, ArrowLeft, AlertCircle, Info } from 'lucide-react';
+import { Calendar as CalendarIcon, Save, Search, Check, X, CheckSquare, Square, ArrowLeft, AlertCircle, Info, Share2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Attendance = () => {
@@ -144,7 +144,7 @@ const Attendance = () => {
     };
 
     const copyToWhatsapp = () => {
-        const text = `*Wings Coaching Center*\nBatch: ${selectedBatch}\nDate: ${selectedDate}\n\n*Absentees:*\n${absentees.map((name, i) => `${i + 1}. ${name}`).join('\n')}`;
+        const text = `*Wings Coaching Center*\nDate: ${selectedDate}\nBatch: ${selectedBatch}\n\n*Absentees:*\n${absentees.length > 0 ? absentees.map((name, i) => `${i + 1}. ${name}`).join('\n') : 'Nil'}`;
         navigator.clipboard.writeText(text);
         toast.success('Copied to clipboard');
     };

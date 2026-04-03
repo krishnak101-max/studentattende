@@ -8,6 +8,7 @@ export interface Student {
   phone_number?: string;
   register_number?: string;
   roll_number?: string;
+  first_language?: string;
   created_at?: string;
 }
 

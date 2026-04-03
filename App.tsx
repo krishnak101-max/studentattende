@@ -9,6 +9,7 @@ import Students from './components/Students';
 import Reports from './components/Reports';
 import Absentees from './components/Absentees';
 import AdminTools from './components/AdminTools';
+import Transfer from './components/Transfer';
 
 // Simple Auth Context Logic
 const ProtectedRoute = ({ children }: { children?: React.ReactNode }) => {
@@ -37,6 +38,7 @@ function App() {
                     <Route path="/attendance" element={<Attendance />} />
                     <Route path="/students" element={<Students />} />
                     <Route path="/absentees" element={<Absentees />} />
+                    <Route path="/transfer" element={<Transfer />} />
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/admin" element={<AdminTools />} />
                   </Routes>

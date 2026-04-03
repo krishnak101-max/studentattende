@@ -46,7 +46,8 @@ export const BatchProvider = ({ children }: { children: ReactNode }) => {
     fetchBatches();
   }, []);
 
-  const activeBatches = batches.filter(b => b.is_active);
+  const activeBatches = batches.filter(b => b.is_active && b.name !== 'ALUMNI');
+  const alumniBatch = batches.find(b => b.name === 'ALUMNI');
 
   return (
     <BatchContext.Provider value={{ batches, loadingBatches, refreshBatches: fetchBatches, activeBatches }}>

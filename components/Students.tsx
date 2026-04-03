@@ -23,7 +23,7 @@ const Students = () => {
   // Form State
   const [formData, setFormData] = useState({
     name: '', batch: '', sex: 'Male', roll_number: '',
-    medium: 'English', parent_name: '', phone_number: ''
+    medium: 'English', first_language: 'Malayalam', parent_name: '', phone_number: ''
   });
 
   useEffect(() => {
@@ -59,6 +59,7 @@ const Students = () => {
         batch: formData.batch,
         sex: formData.sex,
         medium: formData.medium,
+        first_language: formData.first_language,
         parent_name: formData.parent_name,
         phone_number: formData.phone_number,
         roll_number: formData.roll_number || null
@@ -102,14 +103,20 @@ const Students = () => {
         return;
       }
 
-      // 2. Sort: Female First, then Male. Inside that: Alphabetical Name
+      // 2. Sort: Female First, then Male. Inside that: Language, then Name
+      const langOrder: Record<string, number> = { 'Malayalam': 1, 'Sanskrit': 2, 'Arabic': 3, 'Urdu': 4 };
+      
       const sorted = batchStudents.sort((a, b) => {
         // Primary Sort: Sex (Female < Male)
-        if (a.sex !== b.sex) {
-          return a.sex === 'Female' ? -1 : 1;
-        }
-        // Secondary Sort: Name (A-Z)
-        return a.name.localeCompare(b.name);
+        if (a.sex !== b.sex) return a.sex === 'Female' ? -1 : 1;
+        
+        // Secondary Sort: Language
+        const lA = langOrder[a.first_language || 'Malayalam'] || 99;
+        const lB = langOrder[b.first_language || 'Malayalam'] || 99;
+        if (lA !== lB) return lA - lB;
+
+        // Tertiary Sort: Name (A-Z)
+        return (a.name || '').localeCompare(b.name || '');
       });
 
       // 3. Prepare Updates (Roll Number = Index + 1)
@@ -145,7 +152,7 @@ const Students = () => {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', batch: ACTIVE_BATCHES[0] || '', sex: 'Male', roll_number: '', medium: 'English', parent_name: '', phone_number: '' });
+    setFormData({ name: '', batch: ACTIVE_BATCHES[0] || '', sex: 'Male', roll_number: '', medium: 'English', first_language: 'Malayalam', parent_name: '', phone_number: '' });
     setEditingId(null);
   };
 
@@ -156,6 +163,7 @@ const Students = () => {
       sex: s.sex as string,
       roll_number: s.roll_number || '',
       medium: s.medium || 'English',
+      first_language: s.first_language || 'Malayalam',
       parent_name: s.parent_name || '',
       phone_number: s.phone_number || ''
     });
@@ -222,9 +230,10 @@ const Students = () => {
   };
 
   const filteredStudents = students.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
+    (s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.batch.toLowerCase().includes(search.toLowerCase()) ||
-    (s.roll_number && s.roll_number.toLowerCase().includes(search.toLowerCase()))
+    (s.roll_number && s.roll_number.toLowerCase().includes(search.toLowerCase()))) &&
+    (search ? true : s.batch !== 'ALUMNI')
   );
 
   const displayList = search ? filteredStudents : filteredStudents.slice(0, 5);
@@ -337,7 +346,7 @@ const Students = () => {
                   </td>
                   <td className="px-6 py-4 font-bold text-slate-800 uppercase">{student.name}</td>
                   <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${student.batch === 'ALUMNI' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700'}`}>
                       {student.batch}
                     </span>
                   </td>
@@ -419,7 +428,7 @@ const Students = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Batch</label>
                   <select
@@ -450,6 +459,19 @@ const Students = () => {
                   >
                     <option value="English">English</option>
                     <option value="Malayalam">Malayalam</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">First Language</label>
+                  <select
+                    value={formData.first_language}
+                    onChange={(e) => setFormData({ ...formData, first_language: e.target.value })}
+                    className="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                  >
+                    <option value="Malayalam">Malayalam</option>
+                    <option value="Arabic">Arabic</option>
+                    <option value="Sanskrit">Sanskrit</option>
+                    <option value="Urdu">Urdu</option>
                   </select>
                 </div>
               </div>

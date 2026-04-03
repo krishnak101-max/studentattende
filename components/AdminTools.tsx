@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock, Plus, Eye, EyeOff, FileText, Calendar, ClipboardCopy } from 'lucide-react';
+import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock, Plus, Eye, EyeOff, FileText, Calendar, ClipboardCopy, Users, History, ArrowRight } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useBatches } from '../context/BatchContext';
 import toast from 'react-hot-toast';
@@ -13,9 +13,18 @@ const AdminTools = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [storedPassword, setStoredPassword] = useState('');
+  const [alumniCount, setAlumniCount] = useState(0);
+  const [allStudentsData, setAllStudentsData] = useState<any[]>([]);
 
   // Batch Management
   const { batches, refreshBatches } = useBatches();
+
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      fetchAlumniCount();
+      fetchAllStudents();
+    }
+  }, [isAuthenticated, batches]);
   const [newBatchName, setNewBatchName] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
 
@@ -23,6 +32,33 @@ const AdminTools = () => {
   const [reportDate, setReportDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [reportBatch, setReportBatch] = useState('ALL');
   const [reportLoading, setReportLoading] = useState(false);
+
+  // Attendance Sheet
+  const [sheetBatch, setSheetBatch] = useState('');
+  const [sheetMonth, setSheetMonth] = useState(format(new Date(), 'yyyy-MM'));
+  const [sheetLoading, setSheetLoading] = useState(false);
+
+  const fetchAllStudents = async () => {
+    try {
+      const { data } = await supabase.from('students').select('*').neq('batch', 'ALUMNI');
+      if (data) setAllStudentsData(data);
+    } catch (err) {
+      console.error('Failed to fetch all students');
+    }
+  };
+
+  const fetchAlumniCount = async () => {
+    try {
+      const { count, error } = await supabase
+        .from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('batch', 'ALUMNI');
+      
+      if (!error) setAlumniCount(count || 0);
+    } catch (err) {
+      console.error('Failed to fetch alumni count');
+    }
+  };
 
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -253,6 +289,93 @@ const AdminTools = () => {
     }
   };
 
+  const handleGenerateAttendanceSheet = async () => {
+    if (!sheetBatch) {
+      toast.error("Please select a batch");
+      return;
+    }
+    setSheetLoading(true);
+    try {
+      // Get all students for the selected batch
+      const { data, error } = await supabase.from('students').select('*').eq('batch', sheetBatch);
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        toast.error(`No students in batch ${sheetBatch}`);
+        return;
+      }
+
+      // Sort students: 
+      // 1. Girls first, then Boys
+      // 2. Language: Malayalam(1), Sanskrit(2), Arabic(3), Urdu(4)
+      // 3. Name alphabetical
+      const langOrder: Record<string, number> = { 'Malayalam': 1, 'Sanskrit': 2, 'Arabic': 3, 'Urdu': 4 };
+
+      const sortedStudents = [...data].sort((a, b) => {
+        // Sex: Female before Male
+        if (a.sex !== b.sex) return a.sex === 'Female' ? -1 : 1;
+        
+        // Language
+        const lA = langOrder[a.first_language || 'Malayalam'] || 99;
+        const lB = langOrder[b.first_language || 'Malayalam'] || 99;
+        if (lA !== lB) return lA - lB;
+
+        // Name
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      // Calculate days in the selected month
+      const [yearStr, monthStr] = sheetMonth.split('-');
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const daysInMonth = new Date(year, month, 0).getDate();
+
+      // Setup PDF in landscape A4
+      const doc = new jsPDF('landscape', 'mm', 'a4');
+      doc.setFontSize(14);
+      doc.text(`Attendance Sheet: Batch ${sheetBatch} | ${format(new Date(year, month - 1, 1), 'MMMM yyyy')}`, 14, 15);
+      
+      // Header row
+      const head = [['Roll', 'Name', 'Lang', ...Array.from({length: daysInMonth}, (_, i) => `${i+1}`)]];
+      
+      // Body rows
+      const body = sortedStudents.map(s => [
+        s.roll_number || '-',
+        s.name,
+        (s.first_language || 'Mal').substring(0, 3), // Shorten lang to 3 letters
+        ...Array(daysInMonth).fill('') // Empty cells for attendance marking
+      ]);
+
+      (doc as any).autoTable({
+        startY: 20,
+        head: head,
+        body: body,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229], halign: 'center', fontSize: 8, cellPadding: 1 },
+        bodyStyles: { fontSize: 8, cellPadding: 1, textColor: [40, 40, 40] },
+        columnStyles: {
+          0: { cellWidth: 12, fontStyle: 'bold', halign: 'center' }, // Roll
+          1: { cellWidth: 46 }, // Name
+          2: { cellWidth: 12, halign: 'center' }, // Lang
+          // Days columns will auto-distribute
+        },
+        styles: { overflow: 'linebreak', minCellHeight: 6 },
+        didParseCell: function(data: any) {
+          if (data.section === 'body' && data.column.index > 2) {
+            data.cell.styles.halign = 'center';
+          }
+        }
+      });
+
+      doc.save(`Attendance_Sheet_${sheetBatch}_${sheetMonth}.pdf`);
+      toast.success("Attendance Sheet Generated!");
+    } catch (err: any) {
+      toast.error("Failed to generate sheet");
+      console.error(err);
+    } finally {
+      setSheetLoading(false);
+    }
+  };
+
   // LOCKED STATE UI
   if (!isAuthenticated) {
     return (
@@ -305,6 +428,26 @@ const AdminTools = () => {
         </div>
 
       </div>
+
+      {/* Alumni Status Summary */}
+      <div className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700 rounded-xl p-6 shadow-xl text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <Users className="h-6 w-6 text-indigo-400" />
+              Alumni Management
+            </h3>
+            <p className="text-slate-400 text-sm mt-1">
+              Students moved to the ALUMNI batch are hidden from dashboard and attendance.
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="block text-slate-400 text-xs uppercase font-bold tracking-wider">Total Alumni</span>
+            <span className="text-4xl font-black text-indigo-400">{alumniCount}</span>
+          </div>
+        </div>
+      </div>
+
 
       {/* Backup Section */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
@@ -363,6 +506,92 @@ const AdminTools = () => {
             </div>
           ))}
           {batches.length === 0 && <span className="text-slate-400 text-sm italic">No batches configured</span>}
+        </div>
+      </div>
+
+      {/* Batch Statistics Grid */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+          <Users className="h-5 w-5 text-indigo-600" />
+          Batch Overview & Demographics
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {batches.map(batch => {
+            const bStudents = allStudentsData.filter(s => s.batch === batch.name);
+            const boys = bStudents.filter(s => s.sex === 'Male').length;
+            const girls = bStudents.filter(s => s.sex === 'Female').length;
+            const mal = bStudents.filter(s => s.first_language === 'Malayalam' || !s.first_language).length;
+            const san = bStudents.filter(s => s.first_language === 'Sanskrit').length;
+            const ara = bStudents.filter(s => s.first_language === 'Arabic').length;
+            const urd = bStudents.filter(s => s.first_language === 'Urdu').length;
+
+            return (
+              <div key={batch.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex justify-between items-center">
+                  <span className="font-black text-slate-800 text-lg tracking-wide">{batch.name}</span>
+                  <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-bold">
+                    {bStudents.length} Students
+                  </span>
+                </div>
+                <div className="p-4 bg-white grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Gender</p>
+                    <p className="text-sm font-semibold flex justify-between">Girls: <span className="text-pink-600">{girls}</span></p>
+                    <p className="text-sm font-semibold flex justify-between">Boys: <span className="text-blue-600">{boys}</span></p>
+                  </div>
+                  <div className="space-y-1 border-l border-slate-100 pl-4">
+                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Language</p>
+                    {mal > 0 && <p className="text-sm flex justify-between text-slate-600">Malayalam: <b>{mal}</b></p>}
+                    {san > 0 && <p className="text-sm flex justify-between text-slate-600">Sanskrit: <b>{san}</b></p>}
+                    {ara > 0 && <p className="text-sm flex justify-between text-slate-600">Arabic: <b>{ara}</b></p>}
+                    {urd > 0 && <p className="text-sm flex justify-between text-slate-600">Urdu: <b>{urd}</b></p>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Attendance Sheet Generator */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+          <Calendar className="h-5 w-5 text-indigo-600" />
+          Printable Attendance Sheets
+        </h3>
+        <p className="text-slate-500 mb-6 text-sm">
+          Generate an A4 landscape monthly attendance sheet sorted by <b>Girls &rarr; Boys</b>, then by <b>First Language</b>, then alphabetically. Perfect for printing to take manual attendance.
+        </p>
+        <div className="flex flex-wrap gap-4 items-end bg-slate-50 p-4 rounded-xl border border-slate-100 w-fit">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest pl-1 mb-1">Batch</label>
+            <select
+              value={sheetBatch}
+              onChange={e => setSheetBatch(e.target.value)}
+              className="px-4 py-2 border border-slate-200 bg-white rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 font-semibold"
+            >
+              <option value="">Select Batch</option>
+              {batches.map(b => (
+                <option key={b.id} value={b.name}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest pl-1 mb-1">Month & Year</label>
+            <input
+              type="month"
+              value={sheetMonth}
+              onChange={e => setSheetMonth(e.target.value)}
+              className="px-4 py-2 border border-slate-200 bg-white rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 font-semibold"
+            />
+          </div>
+          <button
+            onClick={handleGenerateAttendanceSheet}
+            disabled={sheetLoading || !sheetBatch || !sheetMonth}
+            className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:shadow-none shadow-md shadow-indigo-100 transition-all flex items-center gap-2"
+          >
+            {sheetLoading ? 'Processing...' : <><FileText className="h-4 w-4" /> Generate Sheet</>}
+          </button>
         </div>
       </div>
 

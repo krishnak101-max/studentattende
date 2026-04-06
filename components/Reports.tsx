@@ -5,11 +5,11 @@ import { format, parse } from 'date-fns';
 import { supabase } from '../services/supabase';
 import { StudentStats } from '../types';
 import { useBatches } from '../context/BatchContext';
-import { FileDown, Search, FileText, ChevronDown, Check } from 'lucide-react';
+import { FileDown, Search, FileText, ChevronDown, Check, ClipboardCopy, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Reports = () => {
-  const [activeTab, setActiveTab] = useState<'individual' | 'batch'>('individual');
+  const [activeTab, setActiveTab] = useState<'individual' | 'batch' | 'joins'>('individual');
 
   return (
     <div className="space-y-6">
@@ -34,9 +34,20 @@ const Reports = () => {
         >
           Daily Batch PDF
         </button>
+        <button
+          onClick={() => setActiveTab('joins')}
+          className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'joins'
+            ? 'border-primary text-primary'
+            : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+        >
+          New Joins
+        </button>
       </div>
 
-      {activeTab === 'individual' ? <IndividualReport /> : <BatchPDFReport />}
+      {activeTab === 'individual' && <IndividualReport />}
+      {activeTab === 'batch' && <BatchPDFReport />}
+      {activeTab === 'joins' && <NewJoinsReport />}
     </div>
   );
 };
@@ -453,6 +464,174 @@ const BatchPDFReport = () => {
           </>
         )}
       </button>
+    </div>
+  );
+};
+
+const NewJoinsReport = () => {
+  const { activeBatches } = useBatches();
+  const [reportDate, setReportDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [reportBatch, setReportBatch] = useState('ALL');
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const handleGenerateRegistrationReport = async () => {
+    setReportLoading(true);
+    try {
+      const startDate = `${reportDate}T00:00:00.000Z`;
+      const endDate = `${reportDate}T23:59:59.999Z`;
+
+      let query = supabase.from('students').select('*')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('batch', { ascending: true })
+        .order('name', { ascending: true });
+
+      if (reportBatch !== 'ALL') {
+        query = query.eq('batch', reportBatch);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast.error(`No students registered on ${reportDate} ${reportBatch !== 'ALL' ? 'for ' + reportBatch : ''}`);
+        return;
+      }
+
+      const doc = new jsPDF();
+      doc.setFontSize(16);
+      doc.text("New Registrations Report", 14, 20);
+      doc.setFontSize(11);
+      doc.text(`Date: ${format(new Date(reportDate), 'dd-MM-yyyy')}`, 14, 28);
+      doc.text(`Batch: ${reportBatch}`, 14, 34);
+      doc.text(`Total Registrations: ${data.length}`, 14, 40);
+
+      const tableData = data.map((s, index) => [
+        index + 1,
+        s.register_number || '-',
+        s.name,
+        s.batch,
+        s.sex,
+        s.phone_number || '-',
+        s.medium || '-'
+      ]);
+
+      (doc as any).autoTable({
+        startY: 45,
+        head: [['#', 'Reg No', 'Name', 'Batch', 'Sex', 'Phone', 'Medium']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 58, 138] },
+        styles: { fontSize: 9 }
+      });
+
+      doc.save(`Registrations_${reportDate}_${reportBatch}.pdf`);
+      toast.success("Report Generated");
+    } catch (err: any) {
+      toast.error('Failed to generate report');
+      console.error(err);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleCopyForWhatsapp = async () => {
+    setReportLoading(true);
+    try {
+      const startDate = `${reportDate}T00:00:00.000Z`;
+      const endDate = `${reportDate}T23:59:59.999Z`;
+
+      let query = supabase.from('students').select('*')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('batch', { ascending: true })
+        .order('name', { ascending: true });
+
+      if (reportBatch !== 'ALL') {
+        query = query.eq('batch', reportBatch);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast.error(`No students found for ${reportDate}`);
+        return;
+      }
+
+      let message = `*New Registrations - ${format(new Date(reportDate), 'dd-MM-yyyy')}*\n\n`;
+      const batchCounts: Record<string, number> = {};
+
+      data.forEach(s => {
+        batchCounts[s.batch] = (batchCounts[s.batch] || 0) + 1;
+      });
+
+      Object.entries(batchCounts).forEach(([b, count]) => {
+        message += `*Batch ${b}*: ${count} student${count > 1 ? 's' : ''}\n`;
+      });
+
+      const totalCount = data.length;
+      message += `\n*Total*: ${totalCount} new registration${totalCount > 1 ? 's' : ''}`;
+
+      await navigator.clipboard.writeText(message);
+      toast.success("Copied to clipboard for WhatsApp!");
+    } catch (err: any) {
+      toast.error('Failed to copy');
+      console.error(err);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-100 max-w-xl mx-auto">
+      <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-6">
+        <Users className="h-8 w-8 text-primary" />
+      </div>
+      <h2 className="text-xl font-bold text-slate-800 mb-2">New Join Registrations</h2>
+      <p className="text-slate-500 mb-6 text-sm">Find students joined by a specific date, download the PDF, or copy a WhatsApp summary.</p>
+      
+      <div className="space-y-4 mb-8">
+        <div>
+          <label className="block text-sm font-medium text-slate-600 mb-1">Join Date</label>
+          <input
+            type="date"
+            value={reportDate}
+            onChange={e => setReportDate(e.target.value)}
+            className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50 font-semibold"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-600 mb-1">Batch Filter</label>
+          <select
+            value={reportBatch}
+            onChange={e => setReportBatch(e.target.value)}
+            className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 bg-white font-medium"
+          >
+            <option value="ALL">All Batches</option>
+            {activeBatches.map(b => (
+              <option key={b.name} value={b.name}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex gap-4">
+        <button
+          onClick={handleGenerateRegistrationReport}
+          disabled={reportLoading}
+          className="flex-1 bg-primary hover:bg-blue-800 text-white font-bold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-900/10 disabled:bg-slate-300 disabled:shadow-none"
+        >
+          <FileDown className="h-5 w-5" /> PDF Full Report
+        </button>
+        <button
+          onClick={handleCopyForWhatsapp}
+          disabled={reportLoading}
+          className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-green-900/10 disabled:bg-slate-300 disabled:shadow-none"
+        >
+          <ClipboardCopy className="h-5 w-5" /> WA Copy Summary
+        </button>
+      </div>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, parse } from 'date-fns';
@@ -473,40 +473,56 @@ const NewJoinsReport = () => {
   const [reportDate, setReportDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [reportBatch, setReportBatch] = useState('ALL');
   const [reportLoading, setReportLoading] = useState(false);
+  
+  const [previewData, setPreviewData] = useState<any[]>([]);
+  const [isFetching, setIsFetching] = useState(false);
+
+  useEffect(() => {
+    const fetchPreviewData = async () => {
+      if (!reportDate) return;
+      setIsFetching(true);
+      try {
+        const startDate = `${reportDate}T00:00:00.000Z`;
+        const endDate = `${reportDate}T23:59:59.999Z`;
+
+        let query = supabase.from('students').select('*')
+          .gte('created_at', startDate)
+          .lte('created_at', endDate)
+          .order('batch', { ascending: true })
+          .order('name', { ascending: true });
+
+        if (reportBatch !== 'ALL') {
+          query = query.eq('batch', reportBatch);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        setPreviewData(data || []);
+      } catch (err) {
+        console.error("Failed to fetch preview:", err);
+      } finally {
+        setIsFetching(false);
+      }
+    };
+    fetchPreviewData();
+  }, [reportDate, reportBatch]);
 
   const handleGenerateRegistrationReport = async () => {
+    if (previewData.length === 0) {
+      toast.error(`No students registered on ${reportDate}`);
+      return;
+    }
     setReportLoading(true);
     try {
-      const startDate = `${reportDate}T00:00:00.000Z`;
-      const endDate = `${reportDate}T23:59:59.999Z`;
-
-      let query = supabase.from('students').select('*')
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .order('batch', { ascending: true })
-        .order('name', { ascending: true });
-
-      if (reportBatch !== 'ALL') {
-        query = query.eq('batch', reportBatch);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      if (!data || data.length === 0) {
-        toast.error(`No students registered on ${reportDate} ${reportBatch !== 'ALL' ? 'for ' + reportBatch : ''}`);
-        return;
-      }
-
       const doc = new jsPDF();
       doc.setFontSize(16);
       doc.text("New Registrations Report", 14, 20);
       doc.setFontSize(11);
       doc.text(`Date: ${format(new Date(reportDate), 'dd-MM-yyyy')}`, 14, 28);
       doc.text(`Batch: ${reportBatch}`, 14, 34);
-      doc.text(`Total Registrations: ${data.length}`, 14, 40);
+      doc.text(`Total Registrations: ${previewData.length}`, 14, 40);
 
-      const tableData = data.map((s, index) => [
+      const tableData = previewData.map((s, index) => [
         index + 1,
         s.register_number || '-',
         s.name,
@@ -536,33 +552,16 @@ const NewJoinsReport = () => {
   };
 
   const handleCopyForWhatsapp = async () => {
+    if (previewData.length === 0) {
+      toast.error(`No students found for ${reportDate}`);
+      return;
+    }
     setReportLoading(true);
     try {
-      const startDate = `${reportDate}T00:00:00.000Z`;
-      const endDate = `${reportDate}T23:59:59.999Z`;
-
-      let query = supabase.from('students').select('*')
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .order('batch', { ascending: true })
-        .order('name', { ascending: true });
-
-      if (reportBatch !== 'ALL') {
-        query = query.eq('batch', reportBatch);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      if (!data || data.length === 0) {
-        toast.error(`No students found for ${reportDate}`);
-        return;
-      }
-
       let message = `*New Registrations - ${format(new Date(reportDate), 'dd-MM-yyyy')}*\n\n`;
       const batchCounts: Record<string, number> = {};
 
-      data.forEach(s => {
+      previewData.forEach(s => {
         batchCounts[s.batch] = (batchCounts[s.batch] || 0) + 1;
       });
 
@@ -570,7 +569,7 @@ const NewJoinsReport = () => {
         message += `*Batch ${b}*: ${count} student${count > 1 ? 's' : ''}\n`;
       });
 
-      const totalCount = data.length;
+      const totalCount = previewData.length;
       message += `\n*Total*: ${totalCount} new registration${totalCount > 1 ? 's' : ''}`;
 
       await navigator.clipboard.writeText(message);
@@ -584,21 +583,42 @@ const NewJoinsReport = () => {
   };
 
   return (
-    <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-100 max-w-xl mx-auto">
-      <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-6">
-        <Users className="h-8 w-8 text-primary" />
+    <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-100 max-w-4xl mx-auto">
+      <div className="flex flex-col md:flex-row justify-between items-start gap-6 mb-6">
+        <div>
+          <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+            <Users className="h-8 w-8 text-primary" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">New Join Registrations</h2>
+          <p className="text-slate-500 text-sm max-w-xl">Find students joined by a specific date, preview the list, and export it instantly.</p>
+        </div>
+
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={handleGenerateRegistrationReport}
+            disabled={reportLoading || previewData.length === 0}
+            className="bg-primary hover:bg-blue-800 text-white font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-900/10 disabled:bg-slate-300 disabled:shadow-none text-sm"
+          >
+            <FileDown className="h-4 w-4" /> PDF Report
+          </button>
+          <button
+            onClick={handleCopyForWhatsapp}
+            disabled={reportLoading || previewData.length === 0}
+            className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-green-900/10 disabled:bg-slate-300 disabled:shadow-none text-sm"
+          >
+            <ClipboardCopy className="h-4 w-4" /> WA Copy
+          </button>
+        </div>
       </div>
-      <h2 className="text-xl font-bold text-slate-800 mb-2">New Join Registrations</h2>
-      <p className="text-slate-500 mb-6 text-sm">Find students joined by a specific date, download the PDF, or copy a WhatsApp summary.</p>
       
-      <div className="space-y-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 bg-slate-50 p-4 rounded-xl border border-slate-100">
         <div>
           <label className="block text-sm font-medium text-slate-600 mb-1">Join Date</label>
           <input
             type="date"
             value={reportDate}
             onChange={e => setReportDate(e.target.value)}
-            className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50 font-semibold"
+            className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 bg-white font-semibold"
           />
         </div>
         <div>
@@ -606,7 +626,7 @@ const NewJoinsReport = () => {
           <select
             value={reportBatch}
             onChange={e => setReportBatch(e.target.value)}
-            className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 bg-white font-medium"
+            className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 bg-white font-medium"
           >
             <option value="ALL">All Batches</option>
             {activeBatches.map(b => (
@@ -616,21 +636,44 @@ const NewJoinsReport = () => {
         </div>
       </div>
 
-      <div className="flex gap-4">
-        <button
-          onClick={handleGenerateRegistrationReport}
-          disabled={reportLoading}
-          className="flex-1 bg-primary hover:bg-blue-800 text-white font-bold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-900/10 disabled:bg-slate-300 disabled:shadow-none"
-        >
-          <FileDown className="h-5 w-5" /> PDF Full Report
-        </button>
-        <button
-          onClick={handleCopyForWhatsapp}
-          disabled={reportLoading}
-          className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-green-900/10 disabled:bg-slate-300 disabled:shadow-none"
-        >
-          <ClipboardCopy className="h-5 w-5" /> WA Copy Summary
-        </button>
+      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+          <h3 className="font-bold text-slate-700 text-sm">Join Preview ({previewData.length})</h3>
+          {isFetching && <span className="text-xs font-bold text-blue-600 animate-pulse">Loading...</span>}
+        </div>
+        
+        {previewData.length === 0 && !isFetching ? (
+          <div className="p-8 text-center text-slate-500 font-medium">
+            No students found for this date {reportBatch !== 'ALL' && `in ${reportBatch}`}.
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-[400px]">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 bg-white shadow-sm ring-1 ring-slate-100">
+                <tr className="text-slate-500 text-xs uppercase tracking-wider">
+                  <th className="p-4 font-bold border-b border-slate-100">Reg No</th>
+                  <th className="p-4 font-bold border-b border-slate-100">Name</th>
+                  <th className="p-4 font-bold border-b border-slate-100">Batch</th>
+                  <th className="p-4 font-bold border-b border-slate-100">Phone</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 bg-white">
+                {previewData.map((student) => (
+                  <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4 text-sm font-semibold text-slate-600">{student.register_number || '-'}</td>
+                    <td className="p-4 text-sm font-bold text-slate-800">{student.name}</td>
+                    <td className="p-4 text-sm">
+                      <span className="bg-indigo-100 text-indigo-800 px-2.5 py-1 rounded font-bold text-[10px] uppercase tracking-wider">
+                        {student.batch}
+                      </span>
+                    </td>
+                    <td className="p-4 text-sm text-slate-600 font-medium">{student.phone_number || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

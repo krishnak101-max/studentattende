@@ -23,7 +23,7 @@ const Students = () => {
   // Form State
   const [formData, setFormData] = useState({
     name: '', batch: '', sex: 'Male', roll_number: '',
-    medium: 'English', first_language: 'Malayalam', parent_name: '', phone_number: ''
+    medium: 'English', first_language: 'Malayalam', parent_name: '', phone_number: '', school_name: 'GHSS Karakkunnu'
   });
 
   useEffect(() => {
@@ -60,6 +60,7 @@ const Students = () => {
         sex: formData.sex,
         medium: formData.medium,
         first_language: formData.first_language,
+        school_name: formData.school_name,
         parent_name: formData.parent_name,
         phone_number: formData.phone_number,
         roll_number: formData.roll_number || null
@@ -152,7 +153,7 @@ const Students = () => {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', batch: ACTIVE_BATCHES[0] || '', sex: 'Male', roll_number: '', medium: 'English', first_language: 'Malayalam', parent_name: '', phone_number: '' });
+    setFormData({ name: '', batch: ACTIVE_BATCHES[0] || '', sex: 'Male', roll_number: '', medium: 'English', first_language: 'Malayalam', parent_name: '', phone_number: '', school_name: 'GHSS Karakkunnu' });
     setEditingId(null);
   };
 
@@ -164,6 +165,7 @@ const Students = () => {
       roll_number: s.roll_number || '',
       medium: s.medium || 'English',
       first_language: s.first_language || 'Malayalam',
+      school_name: s.school_name || 'GHSS Karakkunnu',
       parent_name: s.parent_name || '',
       phone_number: s.phone_number || ''
     });
@@ -474,6 +476,23 @@ const Students = () => {
                     <option value="Urdu">Urdu</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">School Name</label>
+                <select
+                  value={formData.school_name}
+                  onChange={(e) => setFormData({ ...formData, school_name: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-100 outline-none bg-white font-medium"
+                >
+                  <option value="GHSS Karakkunnu">GHSS Karakkunnu</option>
+                  <option value="IOHS Edavanna">IOHS Edavanna</option>
+                  <option value="SGVHS Edavanna">SGVHS Edavanna</option>
+                  <option value="Falah">Falah</option>
+                  <option value="HMYHS">HMYHS</option>
+                  <option value="JAMIYA">JAMIYA</option>
+                  <option value="OTHER">OTHER</option>
+                </select>
               </div>
 
               {!editingId && (

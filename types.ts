@@ -9,6 +9,7 @@ export interface Student {
   register_number?: string;
   roll_number?: string;
   first_language?: string;
+  school_name?: string;
   created_at?: string;
 }
 

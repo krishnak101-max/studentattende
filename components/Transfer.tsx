@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { useBatches } from '../context/BatchContext';
-import { History, ArrowRight, CheckCircle2, AlertCircle, Users, GraduationCap } from 'lucide-react';
+import { History, ArrowRight, CheckCircle2, AlertCircle, Users, GraduationCap, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
+import Papa from 'papaparse';
 
 const Transfer = () => {
   const { batches, refreshBatches } = useBatches();
@@ -11,26 +12,26 @@ const Transfer = () => {
   const [transferTo, setTransferTo] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
   const [transferMode, setTransferMode] = useState<'BULK' | 'SINGLE'>('BULK');
-  const [transferStudentId, setTransferStudentId] = useState('');
   const [studentsInFromBatch, setStudentsInFromBatch] = useState<any[]>([]);
   const [alumniCount, setAlumniCount] = useState(0);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [transferredInfo, setTransferredInfo] = useState<{name: string, to: string} | null>(null);
-  const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, title: string} | null>(null);
+  
+  const [rowTargets, setRowTargets] = useState<Record<string, string>>({});
+  const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, title: string, studentId?: string, targetBatch?: string} | null>(null);
 
   useEffect(() => {
     fetchAlumniCount();
   }, [batches]);
 
-  // Fetch students when transferFrom changes in SINGLE mode
+  // Fetch students when transferFrom changes
   useEffect(() => {
-    if (transferFrom && transferMode === 'SINGLE') {
+    if (transferFrom) {
       fetchStudentsForBatch();
     } else {
       setStudentsInFromBatch([]);
-      setTransferStudentId('');
     }
-  }, [transferFrom, transferMode]);
+  }, [transferFrom]);
 
   const fetchAlumniCount = async () => {
     try {
@@ -49,7 +50,7 @@ const Transfer = () => {
     try {
       const { data, error } = await supabase
         .from('students')
-        .select('id, name, roll_number')
+        .select('*')
         .eq('batch', transferFrom)
         .order('name');
       
@@ -59,56 +60,79 @@ const Transfer = () => {
     }
   };
 
-  const handleTransferClick = () => {
+  const handleBulkTransferClick = () => {
     if (!transferFrom || !transferTo) return;
     if (transferFrom === transferTo) {
       toast.error("Source and destination batches are the same");
       return;
     }
 
-    if (transferMode === 'SINGLE' && !transferStudentId) {
-      toast.error("Please select a student to transfer");
+    setConfirmModal({
+      isOpen: true,
+      title: 'Confirm Bulk Transfer',
+      message: `You are about to transfer ALL students from ${transferFrom} to ${transferTo}. This will instantly update all their records. Do you want to proceed?`
+    });
+  };
+
+  const handleSingleTransferClick = (studentId: string, studentName: string, targetBatch: string) => {
+    if (!targetBatch) {
+      toast.error("Please select a destination batch for this student.");
+      return;
+    }
+    if (transferFrom === targetBatch) {
+      toast.error("Source and destination batches are the same");
       return;
     }
 
-    const studentToTransfer = studentsInFromBatch.find(s => s.id === transferStudentId);
-    let title = transferMode === 'BULK' ? 'Confirm Bulk Transfer' : 'Confirm Individual Transfer';
-    let message = transferMode === 'BULK' 
-      ? `You are about to transfer ALL students from ${transferFrom} to ${transferTo}. This will instantly update all their records. Do you want to proceed?`
-      : `You are about to transfer ${studentToTransfer?.name || 'this student'} from ${transferFrom} to ${transferTo}. Do you want to proceed?`;
-
-    setConfirmModal({ isOpen: true, title, message });
+    setConfirmModal({
+      isOpen: true,
+      title: 'Confirm Individual Transfer',
+      message: `You are about to transfer ${studentName} from ${transferFrom} to ${targetBatch}. Do you want to proceed?`,
+      studentId,
+      targetBatch
+    });
   };
 
   const executeTransfer = async () => {
-    setConfirmModal(null);
+    if (!confirmModal) return;
+    const { studentId, targetBatch } = confirmModal;
+    
     setTransferLoading(true);
+    setConfirmModal(null);
     try {
       if (transferMode === 'BULK') {
         const { error } = await supabase.rpc('transfer_students', { 
           from_batch: transferFrom, 
           to_batch: transferTo 
         });
+        
+        if (error) {
+          console.warn("RPC failed, falling back to basic UPDATE");
+          const { error: fallbackError } = await supabase
+            .from('students')
+            .update({ batch: transferTo })
+            .eq('batch', transferFrom);
+          if (fallbackError) throw fallbackError;
+        }
+
+        setTransferredInfo({ name: `All students from ${transferFrom}`, to: transferTo });
+      } else if (studentId && targetBatch) {
+        // Safe update for single transfer without relying on RPC
+        const { error } = await supabase
+          .from('students')
+          .update({ batch: targetBatch })
+          .eq('id', studentId);
+          
         if (error) throw error;
-      } else {
-        const { error } = await supabase.rpc('transfer_single_student', { 
-          target_student_id: transferStudentId, 
-          to_batch: transferTo 
-        });
-        if (error) throw error;
+        
+        const st = studentsInFromBatch.find(s => s.id === studentId);
+        setTransferredInfo({ name: st?.name || 'Student', to: targetBatch });
       }
 
-      setTransferredInfo({ 
-        name: transferMode === 'BULK' ? `All students from ${transferFrom}` : (studentsInFromBatch.find(s => s.id === transferStudentId)?.name || 'Student'), 
-        to: transferTo 
-      });
       setShowSuccessOverlay(true);
       setTimeout(() => setShowSuccessOverlay(false), 3000);
 
-      setTransferStudentId('');
-      if (transferMode === 'SINGLE') {
-        await fetchStudentsForBatch(); // Refresh current batch list
-      }
+      await fetchStudentsForBatch(); // Refresh current batch list
       await refreshBatches();
       fetchAlumniCount();
     } catch (err: any) {
@@ -117,6 +141,38 @@ const Transfer = () => {
     } finally {
       setTransferLoading(false);
     }
+  };
+
+  const handleDownloadExcel = () => {
+    if (studentsInFromBatch.length === 0) {
+      toast.error("No students found to download.");
+      return;
+    }
+
+    const csvData = studentsInFromBatch.map((s, i) => ({
+      '#': i + 1,
+      'Reg No': s.register_number || '',
+      'Name': s.name || '',
+      'Batch': s.batch || '',
+      'Sex': s.sex || '',
+      'Phone': s.phone_number || '',
+      'Medium': s.medium || '',
+      'First Language': s.first_language || '',
+      'Father Name': s.father_name || '',
+      'Mother Name': s.mother_name || '',
+      'Address': s.address || ''
+    }));
+
+    const csv = Papa.unparse(csvData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Students_Batch_${transferFrom}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Downloaded Excel/CSV file");
   };
 
   return (
@@ -166,7 +222,7 @@ const Transfer = () => {
         </div>
 
         <div className="p-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-end">
             <div className="space-y-2">
               <label className="block text-xs font-black text-slate-500 uppercase tracking-widest pl-1">From Batch</label>
               <select
@@ -179,31 +235,6 @@ const Transfer = () => {
                   <option key={b.id} value={b.name}>{b.name}</option>
                 ))}
               </select>
-            </div>
-
-            {transferMode === 'SINGLE' && (
-              <div className="space-y-2 animate-in slide-in-from-left-4 duration-300">
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest pl-1">Target Student</label>
-                <select
-                  value={transferStudentId}
-                  onChange={e => setTransferStudentId(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-500 transition-all text-slate-700 font-semibold"
-                  disabled={!transferFrom || studentsInFromBatch.length === 0}
-                >
-                  <option value="">{transferFrom ? "Choose Student..." : "Select Batch first"}</option>
-                  {studentsInFromBatch.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} {s.roll_number ? `(#${s.roll_number})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="items-center justify-center p-2 hidden lg:flex">
-              <div className="h-10 w-10 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400">
-                <ArrowRight className="h-6 w-6" />
-              </div>
             </div>
 
             <div className="space-y-2">
@@ -220,34 +251,95 @@ const Transfer = () => {
                 <option value="ALUMNI" className="font-bold text-indigo-700 bg-indigo-50">✦ ALUMNI (Archive)</option>
               </select>
             </div>
-          </div>
 
-          <div className="mt-10 pt-6 border-t border-slate-50 flex justify-end">
-            <button
-              onClick={handleTransferClick}
-              disabled={transferLoading || !transferFrom || !transferTo || (transferMode === 'SINGLE' && !transferStudentId)}
-              className={`
-                flex items-center gap-3 px-8 py-4 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg
-                ${transferLoading || !transferFrom || !transferTo || (transferMode === 'SINGLE' && !transferStudentId)
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
-                  : 'bg-indigo-600 text-white hover:bg-black hover:-translate-y-1 active:translate-y-0 shadow-indigo-100'}
-              `}
-            >
-              {transferLoading ? (
-                <>
-                  <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-5 w-5" />
-                  {transferMode === 'BULK' ? 'Confirm Bulk Transfer' : 'Complete Transfer'}
-                </>
-              )}
-            </button>
+            {transferMode === 'BULK' && (
+              <div className="flex justify-end lg:col-start-3">
+                <button
+                  onClick={handleBulkTransferClick}
+                  disabled={transferLoading || !transferFrom || !transferTo}
+                  className={`
+                    w-full flex justify-center items-center gap-3 px-6 py-3 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg
+                    ${transferLoading || !transferFrom || !transferTo
+                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
+                      : 'bg-indigo-600 text-white hover:bg-black hover:-translate-y-1 active:translate-y-0 shadow-indigo-100'}
+                  `}
+                >
+                  {transferLoading ? 'Processing...' : <><CheckCircle2 className="h-5 w-5" /> Confirm Bulk</>}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Grid view for INDIVIDUAL Transfer */}
+      {transferMode === 'SINGLE' && transferFrom && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4">
+          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <Users className="h-5 w-5 text-indigo-600" />
+              Students in {transferFrom} ({studentsInFromBatch.length})
+            </h3>
+            <button
+              onClick={handleDownloadExcel}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-bold text-sm shadow-sm"
+            >
+              <Download className="h-4 w-4" /> Download Excel
+            </button>
+          </div>
+          
+          {studentsInFromBatch.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 font-medium">
+              No students found in {transferFrom}.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-white text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
+                    <th className="p-4 font-bold">Reg No</th>
+                    <th className="p-4 font-bold">Name</th>
+                    <th className="p-4 font-bold">Phone</th>
+                    <th className="p-4 font-bold">Destination</th>
+                    <th className="p-4 font-bold text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {studentsInFromBatch.map(s => (
+                    <tr key={s.id} className="hover:bg-slate-50 transition-colors group">
+                      <td className="p-4 text-sm font-semibold text-slate-600">{s.register_number || '-'}</td>
+                      <td className="p-4 text-sm font-bold text-slate-800">{s.name}</td>
+                      <td className="p-4 text-sm text-slate-600">{s.phone_number || '-'}</td>
+                      <td className="p-4">
+                        <select
+                          className="w-full max-w-[180px] border border-slate-200 bg-white px-3 py-1.5 rounded-lg outline-none focus:border-indigo-500 text-sm font-semibold"
+                          value={rowTargets[s.id] || transferTo || ''}
+                          onChange={(e) => setRowTargets({...rowTargets, [s.id]: e.target.value})}
+                        >
+                          <option value="">Move to...</option>
+                          {batches.filter(b => b.name !== 'ALUMNI' && b.name !== s.batch).map(b => (
+                            <option key={b.id} value={b.name}>{b.name}</option>
+                          ))}
+                          <option value="ALUMNI" className="font-bold text-indigo-700 bg-indigo-50">✦ ALUMNI</option>
+                        </select>
+                      </td>
+                      <td className="p-4 text-right">
+                        <button
+                          onClick={() => handleSingleTransferClick(s.id, s.name, rowTargets[s.id] || transferTo)}
+                          className="bg-indigo-600 hover:bg-black text-white px-4 py-1.5 rounded-lg font-bold text-sm transition shadow-sm opacity-50 group-hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                          disabled={!(rowTargets[s.id] || transferTo) || transferLoading}
+                        >
+                          Transfer
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Success Overlay Animation */}
       {showSuccessOverlay && (
@@ -301,7 +393,7 @@ const Transfer = () => {
       )}
 
       {/* Info Blocks */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
         <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-6">
           <h4 className="font-bold text-indigo-900 flex items-center gap-2 mb-2">
             <Users className="h-5 w-5" />
@@ -309,8 +401,7 @@ const Transfer = () => {
           </h4>
           <p className="text-sm text-indigo-700/80 leading-relaxed">
             Use this when an entire batch completes their course or moves to the next level. 
-            All students in the selected "From Batch" will be instantly moved to the "To Batch".
-            Existing attendance records are preserved and mapped to the students.
+            All students in the selected "From Batch" will be instantly moved to the "To Batch", keeping data intact.
           </p>
         </div>
         
@@ -320,8 +411,8 @@ const Transfer = () => {
             ALUMNI Status
           </h4>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Moving students to the <b>ALUMNI</b> batch hides them from daily operations like 
-            attendance marking and dashboard stats, but keeps their historical data safe in the database.
+            Moving students to the <b>ALUMNI</b> batch archives them. They are hidden from daily operations like 
+            attendance, but their historical data remains safe.
           </p>
         </div>
       </div>

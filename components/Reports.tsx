@@ -651,6 +651,7 @@ const NewJoinsReport = () => {
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-white shadow-sm ring-1 ring-slate-100">
                 <tr className="text-slate-500 text-xs uppercase tracking-wider">
+                  <th className="p-4 font-bold border-b border-slate-100 w-12 text-center">#</th>
                   <th className="p-4 font-bold border-b border-slate-100">Reg No</th>
                   <th className="p-4 font-bold border-b border-slate-100">Name</th>
                   <th className="p-4 font-bold border-b border-slate-100">Batch</th>
@@ -658,8 +659,9 @@ const NewJoinsReport = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 bg-white">
-                {previewData.map((student) => (
+                {previewData.map((student, index) => (
                   <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4 text-sm font-bold text-slate-400 text-center">{index + 1}</td>
                     <td className="p-4 text-sm font-semibold text-slate-600">{student.register_number || '-'}</td>
                     <td className="p-4 text-sm font-bold text-slate-800">{student.name}</td>
                     <td className="p-4 text-sm">

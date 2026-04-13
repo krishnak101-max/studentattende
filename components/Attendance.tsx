@@ -53,13 +53,24 @@ const Attendance = () => {
 
             if (sError) throw sError;
 
-            // Sort Logic: Female (A-Z) -> Male (A-Z)
+            // Sort Logic: Roll Number First -> Female (A-Z) -> Male (A-Z)
             const sortedStudents = (students || []).sort((a, b) => {
-                // 1. Sort by Sex: Female < Male
+                const rollA = parseInt(a.roll_number || '0', 10);
+                const rollB = parseInt(b.roll_number || '0', 10);
+
+                if (rollA > 0 && rollB > 0) {
+                    if (rollA !== rollB) return rollA - rollB;
+                } else if (rollA > 0) {
+                    return -1;
+                } else if (rollB > 0) {
+                    return 1;
+                }
+
+                // 2. Sort by Sex: Female < Male
                 if (a.sex !== b.sex) {
                     return a.sex === 'Female' ? -1 : 1;
                 }
-                // 2. Sort by Name
+                // 3. Sort by Name
                 return a.name.localeCompare(b.name);
             });
 

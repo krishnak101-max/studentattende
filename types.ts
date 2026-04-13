@@ -32,3 +32,22 @@ export interface StudentStats {
   absent: number;
   details: { date: string; status: string }[];
 }
+
+export interface DailyExam {
+  id: string;
+  batch: string;
+  date: string;
+  exam_code: string;
+  max_marks: number;
+  created_at?: string;
+}
+
+export interface DailyExamScore {
+  id: string;
+  exam_id: string;
+  student_id: string;
+  score: number;
+  is_absent: boolean;
+  created_at?: string;
+  student?: Student; // for joining
+}

@@ -10,7 +10,8 @@ import {
   X,
   GraduationCap,
   CalendarOff,
-  History
+  History,
+  PenTool
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -33,6 +34,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/students', label: 'Students', icon: Users },
     { path: '/absentees', label: 'Chronic Absentees', icon: CalendarOff },
     { path: '/transfer', label: 'Transfer', icon: History },
+    { path: '/dat', label: 'Daily Exams (DAT)', icon: PenTool },
     { path: '/reports', label: 'Reports', icon: FileBarChart },
     { path: '/admin', label: 'Admin Tools', icon: Settings },
   ];

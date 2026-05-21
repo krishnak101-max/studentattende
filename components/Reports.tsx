@@ -3,13 +3,13 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, parse } from 'date-fns';
 import { supabase } from '../services/supabase';
-import { StudentStats } from '../types';
+import { StudentStats, Exam, ExamScore } from '../types';
 import { useBatches } from '../context/BatchContext';
-import { FileDown, Search, FileText, ChevronDown, Check, ClipboardCopy, Users } from 'lucide-react';
+import { FileDown, Search, FileText, ChevronDown, Check, ClipboardCopy, Users, BarChart2, Award, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Reports = () => {
-  const [activeTab, setActiveTab] = useState<'individual' | 'batch' | 'joins'>('individual');
+  const [activeTab, setActiveTab] = useState<'individual' | 'batch' | 'joins' | 'progress'>('individual');
 
   return (
     <div className="space-y-6">
@@ -43,11 +43,22 @@ const Reports = () => {
         >
           New Joins
         </button>
+        <button
+          onClick={() => setActiveTab('progress')}
+          className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'progress'
+            ? 'border-indigo-600 text-indigo-600'
+            : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+        >
+          <BarChart2 className="h-4 w-4" />
+          Progress Report
+        </button>
       </div>
 
       {activeTab === 'individual' && <IndividualReport />}
       {activeTab === 'batch' && <BatchPDFReport />}
       {activeTab === 'joins' && <NewJoinsReport />}
+      {activeTab === 'progress' && <ProgressReport />}
     </div>
   );
 };
@@ -677,6 +688,654 @@ const NewJoinsReport = () => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+// ─── Progress Report ──────────────────────────────────────────────────────────
+const GRADED_BATCHES_PR = ['S1', 'S2', 'S3', 'N1', 'N2'];
+
+const getPRGradeLabel = (pct: number, batch?: string): string => {
+  if (batch && !GRADED_BATCHES_PR.includes(batch)) return '—';
+  if (pct >= 90) return 'A+';
+  if (pct >= 80) return 'A';
+  if (pct >= 70) return 'B+';
+  if (pct >= 60) return 'B';
+  if (pct >= 50) return 'C+';
+  if (pct >= 40) return 'C';
+  if (pct >= 30) return 'D+';
+  if (pct > 0)   return 'D';
+  return 'E';
+};
+
+const getPRGrade = (pct: number, batch?: string) => {
+  if (batch && !GRADED_BATCHES_PR.includes(batch)) {
+    return { label: '—', color: 'text-slate-400', bg: 'bg-slate-50', border: 'border-slate-200' };
+  }
+  if (pct >= 90) return { label: 'A+', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-300' };
+  if (pct >= 80) return { label: 'A',  color: 'text-green-700',   bg: 'bg-green-50',   border: 'border-green-300'   };
+  if (pct >= 70) return { label: 'B+', color: 'text-teal-700',    bg: 'bg-teal-50',    border: 'border-teal-300'    };
+  if (pct >= 60) return { label: 'B',  color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-300'    };
+  if (pct >= 50) return { label: 'C+', color: 'text-indigo-700',  bg: 'bg-indigo-50',  border: 'border-indigo-300'  };
+  if (pct >= 40) return { label: 'C',  color: 'text-yellow-700',  bg: 'bg-yellow-50',  border: 'border-yellow-300'  };
+  if (pct >= 30) return { label: 'D+', color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-300'  };
+  if (pct > 0)   return { label: 'D',  color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-300'     };
+  return { label: 'E', color: 'text-red-900', bg: 'bg-red-100', border: 'border-red-400' };
+};
+
+const ProgressReport = () => {
+  const { activeBatches } = useBatches();
+  const BATCHES = activeBatches.map(b => b.name);
+
+  // Individual
+  const [selBatch, setSelBatch] = useState('');
+  const [students, setStudents] = useState<any[]>([]);
+  const [searchName, setSearchName] = useState('');
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [fromDate, setFromDate] = useState(format(new Date().setDate(1), 'yyyy-MM-dd'));
+  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [studentReport, setStudentReport] = useState<any>(null);
+  const [loadingStudent, setLoadingStudent] = useState(false);
+
+  // Batch PDF
+  const [pdfBatch, setPdfBatch] = useState('');
+  const [pdfFrom, setPdfFrom] = useState(format(new Date().setDate(1), 'yyyy-MM-dd'));
+  const [pdfTo, setPdfTo] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [reportTitle, setReportTitle] = useState('');
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [viewMode, setViewMode] = useState<'individual' | 'batch'>('individual');
+
+  useEffect(() => {
+    if (BATCHES.length > 0) {
+      if (!selBatch) setSelBatch(BATCHES[0]);
+      if (!pdfBatch) setPdfBatch(BATCHES[0]);
+    }
+  }, [BATCHES]);
+
+  useEffect(() => {
+    if (!selBatch) return;
+    const f = async () => {
+      const { data } = await supabase.from('students').select('id, name').eq('batch', selBatch).order('name');
+      setStudents(data || []);
+      setSearchName(''); setSelectedStudentId(null); setStudentReport(null);
+    };
+    f();
+  }, [selBatch]);
+
+  const filteredSuggestions = students.filter(s => s.name.toLowerCase().includes(searchName.toLowerCase()));
+
+  const handleLoadStudentReport = async () => {
+    if (!selectedStudentId) { toast.error('Select a student'); return; }
+    setLoadingStudent(true);
+    try {
+      const [{ data: student }, { data: attendance }, { data: examScores }] = await Promise.all([
+        supabase.from('students').select('*').eq('id', selectedStudentId).single(),
+        supabase.from('attendance').select('*').eq('student_id', selectedStudentId)
+          .gte('date', fromDate.split('-').reverse().join('-'))
+          .lte('date', toDate.split('-').reverse().join('-')),
+        supabase.from('exam_scores').select('*, exams(*)').eq('student_id', selectedStudentId),
+      ]);
+
+      const presentDays = (attendance || []).filter(a => a.status === 'Present').length;
+      const totalDays = (attendance || []).length;
+      const pct = totalDays ? Math.round((presentDays / totalDays) * 100) : 0;
+
+      const exScores = (examScores || []).filter(es => {
+        const ex = es.exams;
+        if (!ex) return false;
+        return ex.exam_date >= fromDate && ex.exam_date <= toDate;
+      });
+
+      setStudentReport({ student, presentDays, totalDays, pct, examScores: exScores });
+    } catch {
+      toast.error('Failed to load report');
+    } finally {
+      setLoadingStudent(false);
+    }
+  };
+
+  // ── A4 LANDSCAPE B&W PDF ──────────────────────────────────────────────────
+  const generateBatchPDF = async () => {
+    if (!pdfBatch) { toast.error('Select a batch'); return; }
+    setGeneratingPdf(true);
+    try {
+      const { data: studs } = await supabase.from('students').select('*')
+        .eq('batch', pdfBatch).neq('batch', 'ALUMNI')
+        .order('roll_number', { ascending: true });
+      if (!studs?.length) { toast.error('No students in batch'); return; }
+
+      const { data: allAttendance } = await supabase.from('attendance').select('*')
+        .in('student_id', studs.map(s => s.id));
+      const { data: allExams } = await supabase.from('exams').select('*')
+        .eq('batch', pdfBatch).gte('exam_date', pdfFrom).lte('exam_date', pdfTo)
+        .order('exam_date');
+      const { data: allScores } = await supabase.from('exam_scores').select('*')
+        .in('exam_id', (allExams || []).map(e => e.id));
+
+      // A4 Landscape: 297 × 210 mm  |  Each A5 card: ~148 × 210 mm
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const PAGE_W = 297;
+      const PAGE_H = 210;
+      const CARD_W = 148;   // exactly half of A4 landscape = A5
+      const CARD_H = 210;
+      const PAD = 6;        // inner padding
+
+      // ── B&W colour constants ──
+      const BLACK  = [0, 0, 0]         as [number, number, number];
+      const DARK   = [20, 20, 20]      as [number, number, number];
+      const MID    = [80, 80, 80]      as [number, number, number];
+      const LIGHT  = [160, 160, 160]   as [number, number, number];
+      const XLIGHT = [230, 230, 230]   as [number, number, number];
+      const WHITE  = [255, 255, 255]   as [number, number, number];
+
+      const drawCard = (student: any, x: number) => {
+        const y = 0;
+        const iw = CARD_W - PAD * 2;   // inner width
+
+        // ── outer border ──
+        doc.setDrawColor(...BLACK);
+        doc.setLineWidth(0.8);
+        doc.rect(x, y, CARD_W, CARD_H);
+
+        // ── HEADER BLOCK ──
+        const hdrH = 32;
+
+        // thin decorative line inside header
+        doc.setDrawColor(...BLACK);
+        doc.setLineWidth(0.3);
+        doc.line(x + PAD, y + hdrH - 5, x + CARD_W - PAD, y + hdrH - 5);
+
+        // Title
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.setTextColor(...BLACK);
+        doc.text('Wings Coaching Center', x + CARD_W / 2, y + 12, { align: 'center' });
+
+        // Subtitle 1
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(...DARK);
+        doc.text('Karakunnu', x + CARD_W / 2, y + 18, { align: 'center' });
+
+        // Subtitle 2
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(...BLACK);
+        const repTitleStr = reportTitle ? `${reportTitle} Progress Report` : 'Progress Report';
+        doc.text(repTitleStr, x + CARD_W / 2, y + 25, { align: 'center' });
+
+        // ── STUDENT INFO ──
+        let curY = hdrH + 7;
+
+        // Name row with batch badge
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10.5);
+        doc.setTextColor(...DARK);
+        doc.text(student.name.toUpperCase(), x + PAD, curY + 4);
+
+        // Batch badge (right aligned)
+        const batchLabel = student.batch;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setFillColor(...DARK);
+        doc.setTextColor(...WHITE);
+        const bW = batchLabel.length * 3.5 + 8;
+        doc.roundedRect(x + CARD_W - PAD - bW, curY - 2, bW, 8, 1.5, 1.5, 'F');
+        doc.text(batchLabel, x + CARD_W - PAD - bW / 2, curY + 3.8, { align: 'center' });
+
+        curY += 9;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...MID);
+        const rollSex = `Roll No: ${student.roll_number || '—'}   ${student.sex ? `| ${student.sex}` : ''}`;
+        doc.text(rollSex, x + PAD, curY);
+
+        curY += 4;
+
+        // Period line
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7);
+        doc.setTextColor(...LIGHT);
+        doc.text(`Period: ${pdfFrom} to ${pdfTo}`, x + PAD, curY);
+
+        curY += 5;
+
+        // Thin separator
+        doc.setDrawColor(...XLIGHT);
+        doc.setLineWidth(0.4);
+        doc.line(x + PAD, curY, x + CARD_W - PAD, curY);
+        curY += 5;
+
+        // ── ATTENDANCE SECTION ──
+        const attForStudent = (allAttendance || []).filter(a => {
+          if (a.student_id !== student.id) return false;
+          const d = a.date.split('-').reverse().join('-');
+          return d >= pdfFrom && d <= pdfTo;
+        });
+        const presentDays = attForStudent.filter(a => a.status === 'Present').length;
+        const totalDays = attForStudent.length;
+        const attPct = totalDays ? Math.round((presentDays / totalDays) * 100) : 0;
+
+        // Section heading
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...DARK);
+        doc.text('ATTENDANCE', x + PAD, curY + 4);
+
+        // Stats (right)
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        const attStr = `${attPct}%`;
+        if (attPct >= 75) doc.setTextColor(...BLACK);
+        else doc.setTextColor(...LIGHT);
+        doc.text(attStr, x + CARD_W - PAD, curY + 4, { align: 'right' });
+
+        curY += 8;
+
+        // Attendance bar
+        const barW = iw;
+        const barH = 5;
+        doc.setFillColor(...XLIGHT);
+        doc.roundedRect(x + PAD, curY, barW, barH, 1.2, 1.2, 'F');
+        if (attPct > 0) {
+          const fill = Math.max((barW * attPct) / 100, 3);
+          doc.setFillColor(...DARK);
+          doc.roundedRect(x + PAD, curY, fill, barH, 1.2, 1.2, 'F');
+        }
+
+        curY += barH + 4;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(...MID);
+        doc.text(`${presentDays} Present  /  ${totalDays - presentDays} Absent  /  ${totalDays} Total Days`, x + PAD, curY);
+        curY += 5;
+
+        // Separator
+        doc.setDrawColor(...XLIGHT);
+        doc.setLineWidth(0.4);
+        doc.line(x + PAD, curY, x + CARD_W - PAD, curY);
+        curY += 5;
+
+        // ── EXAM SCORES ──
+        const studentScores = (allScores || []).filter(sc => sc.student_id === student.id);
+        const examsData = (allExams || []).map(ex => ({
+          exam: ex,
+          score: studentScores.find(s => s.exam_id === ex.id),
+        }));
+
+        // Section heading row
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...DARK);
+        doc.text('EXAM SCORES', x + PAD, curY + 4);
+
+        // Column headers
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...MID);
+        doc.text('Subject', x + PAD, curY + 10);
+        doc.text('Score', x + PAD + iw * 0.76, curY + 10, { align: 'right' });
+        doc.text('Grade', x + CARD_W - PAD, curY + 10, { align: 'right' });
+
+        curY += 13;
+        doc.setDrawColor(...XLIGHT);
+        doc.setLineWidth(0.3);
+        doc.line(x + PAD, curY - 1, x + CARD_W - PAD, curY - 1);
+
+        if (examsData.length === 0) {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(7);
+          doc.setTextColor(...LIGHT);
+          doc.text('No exams in this period', x + CARD_W / 2, curY + 6, { align: 'center' });
+          curY += 14;
+        } else {
+          const maxRows = Math.min(examsData.length, 7);
+          examsData.slice(0, maxRows).forEach((es, i) => {
+            const rowH = 8;
+            const rowY = curY + i * rowH;
+
+            // Alternating row bg
+            if (i % 2 === 0) {
+              doc.setFillColor(...XLIGHT);
+              doc.rect(x + PAD - 1, rowY - 1.5, iw + 2, rowH, 'F');
+            }
+
+            const isAbsent = es.score?.is_absent;
+            const rawScore = es.score?.score;
+            const max = es.exam.max_marks;
+            const scorePct = isAbsent || rawScore === null || rawScore === undefined
+              ? 0 : Math.round((rawScore / max) * 100);
+            const gradeLabel = isAbsent ? 'AB' : getPRGradeLabel(scorePct, pdfBatch);
+
+            // Exam title
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.setTextColor(...DARK);
+            const title = es.exam.subject ? es.exam.subject : (es.exam.title.length > 28 ? es.exam.title.substring(0, 28) + '…' : es.exam.title);
+            doc.text(title, x + PAD, rowY + 4.5);
+
+            // Score
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7);
+            const scoreText = isAbsent ? 'AB' : (rawScore !== null && rawScore !== undefined ? `${rawScore}/${max}` : '—');
+            if (isAbsent) doc.setTextColor(...LIGHT); else doc.setTextColor(...DARK);
+            doc.text(scoreText, x + PAD + iw * 0.76, rowY + 4.5, { align: 'right' });
+
+            // Grade — bold, black
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.5);
+            doc.setTextColor(...DARK);
+            doc.text(gradeLabel, x + CARD_W - PAD, rowY + 4.5, { align: 'right' });
+          });
+
+          if (examsData.length > maxRows) {
+            const moreY = curY + maxRows * 8 + 3;
+            doc.setFont('helvetica', 'italic');
+            doc.setFontSize(6.5);
+            doc.setTextColor(...LIGHT);
+            doc.text(`+ ${examsData.length - maxRows} more exams…`, x + PAD, moreY);
+          }
+        }
+
+        // ── FOOTER ──
+        const footY = CARD_H - 8;
+        doc.setDrawColor(...XLIGHT);
+        doc.setLineWidth(0.4);
+        doc.line(x + PAD, footY - 2, x + CARD_W - PAD, footY - 2);
+
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6);
+        doc.setTextColor(...LIGHT);
+        doc.text(`Generated: ${format(new Date(), 'dd-MM-yyyy')}`, x + PAD, footY + 2);
+        doc.setTextColor(...DARK);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6);
+        doc.text('Wings Coaching Center, Karakunnu', x + CARD_W - PAD, footY + 2, { align: 'right' });
+      };
+
+      // ── RENDER PAGES ──
+      for (let i = 0; i < studs.length; i++) {
+        const col = i % 2;
+        if (col === 0 && i > 0) doc.addPage();
+
+        const xPos = col === 0 ? 0 : CARD_W;
+        drawCard(studs[i], xPos);
+
+        // Dashed cut guide between the two cards
+        if (col === 0 && i + 1 < studs.length) {
+          doc.setDrawColor(...XLIGHT);
+          doc.setLineWidth(0.25);
+          (doc as any).setLineDash([3, 3]);
+          doc.line(CARD_W, 3, CARD_W, PAGE_H - 3);
+          (doc as any).setLineDash([]);
+
+          // Scissor icon hint
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(5);
+          doc.setTextColor(...LIGHT);
+          doc.text('✂ cut', CARD_W, 2, { align: 'center' });
+        }
+      }
+
+      doc.save(`Progress_Report_${pdfBatch}_${pdfFrom}_to_${pdfTo}.pdf`);
+      toast.success('✅ Progress Report PDF Downloaded!');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed to generate PDF: ' + err.message);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Sub-tabs */}
+      <div className="flex gap-3">
+        {[
+          { id: 'individual', label: '👤 Individual View',  icon: <TrendingUp className="h-4 w-4" /> },
+          { id: 'batch',      label: '📄 Batch PDF (A5×2)', icon: <Award className="h-4 w-4" /> },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setViewMode(t.id as any)}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              viewMode === t.id
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300'
+            }`}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Individual View ── */}
+      {viewMode === 'individual' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Filters */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-fit space-y-4">
+            <h3 className="font-black text-slate-800 text-lg">Filter</h3>
+
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Batch</label>
+              <div className="relative mt-1">
+                <select
+                  className="w-full p-2.5 border rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-100 appearance-none font-semibold"
+                  value={selBatch} onChange={e => setSelBatch(e.target.value)}
+                >
+                  {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+
+            <div className="relative">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Student</label>
+              <div className="relative mt-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text" value={searchName}
+                  onFocus={() => setIsSearching(true)}
+                  onChange={e => { setSearchName(e.target.value); setIsSearching(true); setSelectedStudentId(null); }}
+                  className={`w-full pl-9 pr-4 py-2.5 rounded-xl border outline-none uppercase placeholder:normal-case ${selectedStudentId ? 'border-green-400 bg-green-50' : 'focus:ring-2 focus:ring-indigo-100'}`}
+                  placeholder="Type name..."
+                />
+                {selectedStudentId && <Check className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-600" />}
+              </div>
+              {isSearching && searchName && !selectedStudentId && (
+                <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                  {filteredSuggestions.map(s => (
+                    <div key={s.id}
+                      onClick={() => { setSearchName(s.name); setSelectedStudentId(s.id); setIsSearching(false); }}
+                      className="px-4 py-2.5 hover:bg-indigo-50 cursor-pointer text-sm text-slate-700 uppercase font-medium"
+                    >{s.name}</div>
+                  ))}
+                  {filteredSuggestions.length === 0 && <div className="px-4 py-3 text-sm text-slate-400 text-center">No match</div>}
+                </div>
+              )}
+              {isSearching && <div className="fixed inset-0 z-40" onClick={() => setIsSearching(false)} />}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">From</label>
+                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                  className="w-full mt-1 p-2.5 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">To</label>
+                <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+                  className="w-full mt-1 p-2.5 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100" />
+              </div>
+            </div>
+
+            <button onClick={handleLoadStudentReport} disabled={loadingStudent || !selectedStudentId}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              <BarChart2 className="h-4 w-4" />
+              {loadingStudent ? 'Loading...' : 'Generate Report'}
+            </button>
+          </div>
+
+          {/* Report Display */}
+          <div className="lg:col-span-2 space-y-4">
+            {studentReport ? (
+              <>
+                <div className="bg-gradient-to-br from-indigo-600 to-purple-700 text-white rounded-2xl p-6">
+                  <h2 className="text-2xl font-black uppercase">{studentReport.student?.name}</h2>
+                  <p className="text-indigo-200 text-sm mt-1">Batch {studentReport.student?.batch} · Roll {studentReport.student?.roll_number || '—'}</p>
+                  <div className="flex gap-6 mt-5">
+                    <div>
+                      <p className="text-indigo-300 text-xs uppercase font-bold tracking-widest">Present</p>
+                      <p className="text-3xl font-black text-green-300">{studentReport.presentDays}</p>
+                    </div>
+                    <div>
+                      <p className="text-indigo-300 text-xs uppercase font-bold tracking-widest">Absent</p>
+                      <p className="text-3xl font-black text-red-300">{studentReport.totalDays - studentReport.presentDays}</p>
+                    </div>
+                    <div>
+                      <p className="text-indigo-300 text-xs uppercase font-bold tracking-widest">Attendance</p>
+                      <p className={`text-3xl font-black ${studentReport.pct >= 75 ? 'text-green-300' : studentReport.pct >= 50 ? 'text-yellow-300' : 'text-red-300'}`}>
+                        {studentReport.pct}%
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 bg-white/20 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${studentReport.pct >= 75 ? 'bg-green-400' : studentReport.pct >= 50 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                      style={{ width: `${studentReport.pct}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+                    <Award className="h-5 w-5 text-indigo-400" />
+                    <h3 className="font-black text-slate-800">Exam Scores ({studentReport.examScores.length})</h3>
+                  </div>
+                  {studentReport.examScores.length === 0 ? (
+                    <div className="p-10 text-center text-slate-400 font-medium">No exams recorded in this period</div>
+                  ) : (
+                    <div className="divide-y divide-slate-50">
+                      {studentReport.examScores.map((es: any) => {
+                        const max = es.exams?.max_marks || 100;
+                        const isAbsent = es.is_absent;
+                        const score = es.score;
+                        const p = isAbsent || score === null ? 0 : Math.round((score / max) * 100);
+                        const grade = getPRGrade(p, es.exams?.batch || selBatch);
+                        return (
+                          <div key={es.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50">
+                            <div>
+                              <p className="font-bold text-slate-800">{es.exams?.title}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {es.exams?.subject ? `${es.exams.subject} · ` : ''}{es.exams?.exam_date}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <p className="font-black text-slate-800 text-lg">{isAbsent ? '—' : `${score ?? '—'}/${max}`}</p>
+                                <p className="text-xs text-slate-500">{isAbsent ? 'Absent' : `${p}%`}</p>
+                              </div>
+                              <span className={`w-11 h-11 rounded-xl font-black text-sm flex items-center justify-center border ${grade.bg} ${grade.color} ${grade.border}`}>
+                                {isAbsent ? 'AB' : grade.label}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-20 text-center">
+                <TrendingUp className="h-12 w-12 text-slate-200 mx-auto mb-3" />
+                <p className="text-slate-400 font-medium">Select a student and generate report</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Batch PDF ── */}
+      {viewMode === 'batch' && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 max-w-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center">
+              <Award className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-800">Batch Progress Report PDF</h2>
+              <p className="text-slate-500 text-sm">A4 Landscape · 2 × A5 cards per sheet · Black &amp; White · Print-ready</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Batch</label>
+              <div className="relative">
+                <select value={pdfBatch} onChange={e => setPdfBatch(e.target.value)}
+                  className="w-full pl-4 pr-8 py-3 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-100 font-semibold appearance-none">
+                  {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Exam Title</label>
+              <input type="text" value={reportTitle} onChange={e => setReportTitle(e.target.value)} placeholder="(Optional) e.g. Unit Test"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">From Date</label>
+              <input type="date" value={pdfFrom} onChange={e => setPdfFrom(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">To Date</label>
+              <input type="date" value={pdfTo} onChange={e => setPdfTo(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+            </div>
+          </div>
+
+          {/* Preview card mockup */}
+          <div className="mb-6 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="bg-slate-800 text-white px-4 py-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-white/40" />
+              PDF Preview — A4 Landscape (297×210mm) · 2 A5 cards per page
+            </div>
+            <div className="bg-slate-50 p-4 flex gap-2 items-stretch">
+              {[1, 2].map(i => (
+                <div key={i} className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-3 text-center text-xs text-slate-400 space-y-1.5">
+                  <div className="text-slate-800 text-center py-2 rounded font-bold text-sm">Wings Coaching Center</div>
+                  <div className="text-slate-700 font-bold">Karakunnu</div>
+                  <div className="text-slate-800 font-bold">{reportTitle ? `${reportTitle} Progress Report` : 'Progress Report'}</div>
+                  <div className="h-px bg-slate-400 my-1" />
+                  <div className="text-left space-y-1">
+                    <div className="h-2 bg-slate-200 rounded w-4/5" />
+                    <div className="h-2 bg-slate-200 rounded w-2/5" />
+                  </div>
+                  <div className="h-2.5 bg-slate-300 rounded-full w-full mt-2" />
+                  <div className="text-slate-400 text-[10px] mt-1">Exam scores table…</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6 text-sm text-slate-600 font-medium">
+            🖨️ <strong>Print tip:</strong> Print in <strong>A4 Landscape, B&amp;W</strong>. Cut along the dashed centre line to get individual A5 progress cards for each student.
+          </div>
+
+          <button
+            onClick={generateBatchPDF}
+            disabled={generatingPdf || !pdfBatch}
+            className="flex items-center gap-2 px-8 py-4 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-lg shadow-slate-300 transition-all disabled:opacity-50 disabled:shadow-none text-base"
+          >
+            <FileDown className="h-5 w-5" />
+            {generatingPdf ? 'Generating PDF...' : 'Download Batch Progress PDF'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

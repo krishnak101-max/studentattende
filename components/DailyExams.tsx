@@ -15,7 +15,10 @@ import {
   Users,
   PenTool,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  LayoutDashboard,
+  FileBarChart,
+  History
 } from 'lucide-react';
 
 type ViewState = 'dashboard' | 'entry' | 'reports';
@@ -310,8 +313,8 @@ const DailyExams: React.FC = () => {
 
     const tableData = filteredReportList.map((rs, index) => [
       index + 1,
-      rs.students.name,
-      rs.students.batch,
+      rs.student.name,
+      rs.student.batch,
       rs.daily_exams.exam_code,
       rs.daily_exams.date,
       rs.is_absent ? 'AB' : rs.score.toString(),
@@ -332,7 +335,7 @@ const DailyExams: React.FC = () => {
 
   const copyRankList = () => {
     const textToCopy = filteredReportList.map((rs, index) => 
-      `${index + 1}. ${rs.students.name} - ${rs.is_absent ? 'AB' : rs.score}/${rs.daily_exams.max_marks}`
+      `${index + 1}. ${rs.student.name} - ${rs.is_absent ? 'AB' : rs.score}/${rs.daily_exams.max_marks}`
     ).join('\n');
 
     navigator.clipboard.writeText(`DAT Rank List (${reportStartDate} to ${reportEndDate})\n\n` + textToCopy);
@@ -645,8 +648,8 @@ const DailyExams: React.FC = () => {
                           {idx + 1}
                         </span>
                       </td>
-                      <td className="p-3 font-medium text-slate-800">{rs.students.name}</td>
-                      <td className="p-3 text-slate-600">{rs.students.batch}</td>
+                      <td className="p-3 font-medium text-slate-800">{rs.student.name}</td>
+                      <td className="p-3 text-slate-600">{rs.student.batch}</td>
                       <td className="p-3 font-medium text-primary">{rs.daily_exams.exam_code}</td>
                       <td className="p-3 text-slate-500">{rs.daily_exams.date}</td>
                       <td className="p-3 text-right">

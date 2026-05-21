@@ -11,7 +11,8 @@ import {
   GraduationCap,
   CalendarOff,
   History,
-  PenTool
+  PenTool,
+  BookOpen
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -35,6 +36,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/absentees', label: 'Chronic Absentees', icon: CalendarOff },
     { path: '/transfer', label: 'Transfer', icon: History },
     { path: '/dat', label: 'Daily Exams (DAT)', icon: PenTool },
+    { path: '/exams', label: 'Exam Management', icon: BookOpen },
     { path: '/reports', label: 'Reports', icon: FileBarChart },
     { path: '/admin', label: 'Admin Tools', icon: Settings },
   ];

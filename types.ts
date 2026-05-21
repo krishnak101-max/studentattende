@@ -33,6 +33,27 @@ export interface StudentStats {
   details: { date: string; status: string }[];
 }
 
+export interface Exam {
+  id: string;
+  title: string;
+  subject?: string;
+  batch: string;
+  exam_date: string;
+  max_marks: number;
+  created_at?: string;
+}
+
+export interface ExamScore {
+  id: string;
+  exam_id: string;
+  student_id: string;
+  score: number | null;
+  is_absent: boolean;
+  created_at?: string;
+  student?: Student;
+  exam?: Exam;
+}
+
 export interface DailyExam {
   id: string;
   batch: string;

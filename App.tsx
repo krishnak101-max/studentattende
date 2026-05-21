@@ -11,6 +11,7 @@ import Absentees from './components/Absentees';
 import AdminTools from './components/AdminTools';
 import Transfer from './components/Transfer';
 import DailyExams from './components/DailyExams';
+import ExamPage from './components/ExamPage';
 
 // Simple Auth Context Logic
 const ProtectedRoute = ({ children }: { children?: React.ReactNode }) => {
@@ -41,6 +42,7 @@ function App() {
                     <Route path="/absentees" element={<Absentees />} />
                     <Route path="/transfer" element={<Transfer />} />
                     <Route path="/dat" element={<DailyExams />} />
+                    <Route path="/exams" element={<ExamPage />} />
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/admin" element={<AdminTools />} />
                   </Routes>

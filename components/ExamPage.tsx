@@ -135,12 +135,13 @@ const MarkEntryTab: React.FC = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const [{ data: studs }, { data: existScores }] = await Promise.all([
+        const [{ data: studs }, { data: existScores }, { data: globalAtt }] = await Promise.all([
           supabase.from('students').select('*')
             .eq('batch', selectedExam.batch)
             .neq('batch', 'ALUMNI')
             .order('roll_number', { ascending: true }),
           supabase.from('exam_scores').select('*').eq('exam_id', selectedExam.id),
+          supabase.from('attendance').select('student_id, status').eq('date', selectedExam.exam_date),
         ]);
 
         const studsData = studs || [];
@@ -148,13 +149,18 @@ const MarkEntryTab: React.FC = () => {
 
         const existing = existScores || [];
         setHasExistingScores(existing.length > 0);
+        const globalAttData = globalAtt || [];
 
         const scoreMap: Record<string, { score: string; is_absent: boolean }> = {};
         studsData.forEach(s => {
           const ex = existing.find(e => e.student_id === s.id);
-          scoreMap[s.id] = ex
-            ? { score: ex.score !== null ? String(ex.score) : '', is_absent: ex.is_absent }
-            : { score: '', is_absent: false };
+          const att = globalAttData.find(a => a.student_id === s.id);
+          const is_absent = att ? att.status === 'Absent' : false;
+          
+          scoreMap[s.id] = {
+            score: ex && ex.score !== null ? String(ex.score) : '',
+            is_absent
+          };
         });
         setScores(scoreMap);
       } finally {
@@ -287,7 +293,6 @@ const MarkEntryTab: React.FC = () => {
                     <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-16">Roll</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Student Name</th>
-                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-36">Status</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-44">Score / {selectedExam.max_marks}</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-24">%</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-20">Grade</th>
@@ -315,32 +320,12 @@ const MarkEntryTab: React.FC = () => {
                             )}
                           </td>
                           <td className="p-4 text-center">
-                            <button
-                              onClick={() =>
-                                setScores(prev => ({
-                                  ...prev,
-                                  [student.id]: {
-                                    score: prev[student.id]?.is_absent ? prev[student.id]?.score : '',
-                                    is_absent: !prev[student.id]?.is_absent,
-                                  },
-                                }))
-                              }
-                              className={`w-28 py-1.5 rounded-full text-xs font-bold border-2 transition-all duration-200 ${
-                                s.is_absent
-                                  ? 'bg-red-100 text-red-600 border-red-300 hover:bg-red-200'
-                                  : 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200'
-                              }`}
-                            >
-                              {s.is_absent ? '✗ ABSENT' : '✓ PRESENT'}
-                            </button>
-                          </td>
-                          <td className="p-4 text-center">
                             <input
                               type="number"
                               min={0}
                               max={selectedExam.max_marks}
                               disabled={s.is_absent}
-                              placeholder="—"
+                              placeholder={s.is_absent ? "Absent" : "—"}
                               value={s.score}
                               onChange={e => {
                                 let val = e.target.value;

@@ -70,7 +70,13 @@ const Attendance = () => {
                 if (a.sex !== b.sex) {
                     return a.sex === 'Female' ? -1 : 1;
                 }
-                // 3. Sort by Name
+                // 3. Sort by Language
+                const langOrder: Record<string, number> = { 'Malayalam': 1, 'Arabic': 2, 'Sanskrit': 3, 'Urdu': 4 };
+                const lA = langOrder[a.first_language || 'Malayalam'] || 99;
+                const lB = langOrder[b.first_language || 'Malayalam'] || 99;
+                if (lA !== lB) return lA - lB;
+
+                // 4. Sort by Name
                 return a.name.localeCompare(b.name);
             });
 

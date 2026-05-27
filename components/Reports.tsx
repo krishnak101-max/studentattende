@@ -347,9 +347,13 @@ const BatchPDFReport = () => {
         return;
       }
 
-      // Sort: Female -> Male, then Alphabetical
+      // Sort: Female -> Male, then Language, then Alphabetical
+      const langOrder: Record<string, number> = { 'Malayalam': 1, 'Arabic': 2, 'Sanskrit': 3, 'Urdu': 4 };
       students.sort((a, b) => {
         if (a.sex !== b.sex) return a.sex === 'Female' ? -1 : 1;
+        const lA = langOrder[a.first_language || 'Malayalam'] || 99;
+        const lB = langOrder[b.first_language || 'Malayalam'] || 99;
+        if (lA !== lB) return lA - lB;
         return a.name.localeCompare(b.name);
       });
 
@@ -508,7 +512,19 @@ const NewJoinsReport = () => {
 
         const { data, error } = await query;
         if (error) throw error;
-        setPreviewData(data || []);
+        
+        const fetchedData = data || [];
+        const langOrder: Record<string, number> = { 'Malayalam': 1, 'Arabic': 2, 'Sanskrit': 3, 'Urdu': 4 };
+        fetchedData.sort((a, b) => {
+          if (a.batch !== b.batch) return a.batch.localeCompare(b.batch);
+          if (a.sex !== b.sex) return a.sex === 'Female' ? -1 : 1;
+          const lA = langOrder[a.first_language || 'Malayalam'] || 99;
+          const lB = langOrder[b.first_language || 'Malayalam'] || 99;
+          if (lA !== lB) return lA - lB;
+          return a.name.localeCompare(b.name);
+        });
+
+        setPreviewData(fetchedData);
       } catch (err) {
         console.error("Failed to fetch preview:", err);
       } finally {
@@ -805,13 +821,48 @@ const ProgressReport = () => {
         .order('roll_number', { ascending: true });
       if (!studs?.length) { toast.error('No students in batch'); return; }
 
-      const { data: allAttendance } = await supabase.from('attendance').select('*')
-        .in('student_id', studs.map(s => s.id));
+      // Fetch attendance with pagination to bypass 1000-row limit
+      let allAttendance: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase.from('attendance').select('*')
+          .in('student_id', studs.map(s => s.id))
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allAttendance = [...allAttendance, ...data];
+          if (data.length < 1000) hasMore = false;
+          else page++;
+        } else {
+          hasMore = false;
+        }
+      }
+
       const { data: allExams } = await supabase.from('exams').select('*')
         .eq('batch', pdfBatch).gte('exam_date', pdfFrom).lte('exam_date', pdfTo)
         .order('exam_date');
-      const { data: allScores } = await supabase.from('exam_scores').select('*')
-        .in('exam_id', (allExams || []).map(e => e.id));
+
+      // Fetch exam scores with pagination
+      let allScores: any[] = [];
+      const examIds = (allExams || []).map(e => e.id);
+      if (examIds.length > 0) {
+        let scorePage = 0;
+        let scoresHasMore = true;
+        while (scoresHasMore) {
+          const { data, error } = await supabase.from('exam_scores').select('*')
+            .in('exam_id', examIds)
+            .range(scorePage * 1000, (scorePage + 1) * 1000 - 1);
+          if (error) throw error;
+          if (data && data.length > 0) {
+            allScores = [...allScores, ...data];
+            if (data.length < 1000) scoresHasMore = false;
+            else scorePage++;
+          } else {
+            scoresHasMore = false;
+          }
+        }
+      }
 
       // A4 Landscape: 297 × 210 mm  |  Each A5 card: ~148 × 210 mm
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });

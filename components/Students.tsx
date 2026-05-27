@@ -4,7 +4,7 @@ import Papa from 'papaparse';
 import { supabase } from '../services/supabase';
 import { Student } from '../types';
 import { useBatches } from '../context/BatchContext';
-import { Plus, Trash2, Edit2, Upload, Download, Search, X, FileSpreadsheet, History, Wand2 } from 'lucide-react';
+import { Plus, Trash2, Edit2, Upload, Download, Search, X, FileSpreadsheet, History, Wand2, Phone } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Students = () => {
@@ -105,7 +105,7 @@ const Students = () => {
       }
 
       // 2. Sort: Female First, then Male. Inside that: Language, then Name
-      const langOrder: Record<string, number> = { 'Malayalam': 1, 'Sanskrit': 2, 'Arabic': 3, 'Urdu': 4 };
+      const langOrder: Record<string, number> = { 'Malayalam': 1, 'Arabic': 2, 'Sanskrit': 3, 'Urdu': 4 };
       
       const sorted = batchStudents.sort((a, b) => {
         // Primary Sort: Sex (Female < Male)
@@ -346,7 +346,18 @@ const Students = () => {
                     Reg: {student.register_number || '-'}<br />
                     Roll: {student.roll_number || '-'}
                   </td>
-                  <td className="px-6 py-4 font-bold text-slate-800 uppercase">{student.name}</td>
+                  <td className="px-6 py-4">
+                    <div className="font-bold text-slate-800 uppercase">{student.name}</div>
+                    {student.phone_number && (
+                      <div className="text-xs text-slate-500 font-normal mt-1 flex items-center gap-1">
+                        <Phone className="h-3 w-3 text-indigo-400" />
+                        <a href={`tel:${student.phone_number}`} className="hover:text-indigo-600 hover:underline">
+                          {student.phone_number}
+                        </a>
+                        {student.parent_name && <span className="ml-1 opacity-70">({student.parent_name})</span>}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded text-xs font-bold ${student.batch === 'ALUMNI' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700'}`}>
                       {student.batch}

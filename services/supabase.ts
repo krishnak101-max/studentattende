@@ -61,7 +61,19 @@ $$;
 WITH sorted_rows AS (
   SELECT 
     id, 
-    ROW_NUMBER() OVER (PARTITION BY batch ORDER BY CASE WHEN sex = 'Female' THEN 1 ELSE 2 END, name ASC) as new_rn
+    ROW_NUMBER() OVER (
+      PARTITION BY batch 
+      ORDER BY 
+        CASE WHEN sex = 'Female' THEN 1 ELSE 2 END, 
+        CASE first_language
+          WHEN 'Malayalam' THEN 1
+          WHEN 'Arabic' THEN 2
+          WHEN 'Sanskrit' THEN 3
+          WHEN 'Urdu' THEN 4
+          ELSE 99
+        END,
+        name ASC
+    ) as new_rn
   FROM public.students
 )
 UPDATE public.students

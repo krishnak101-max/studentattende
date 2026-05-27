@@ -10,7 +10,7 @@ import {
   BookOpen, Plus, Save, Trash2, Trophy, ClipboardList,
   ChevronDown, AlertCircle, CheckCircle2, XCircle,
   Download, Lock, Unlock, Calendar, Hash,
-  BarChart2, Award, Edit3, RefreshCw
+  BarChart2, Award, Edit3, RefreshCw, Search
 } from 'lucide-react';
 
 type TabType = 'entry' | 'manage' | 'results';
@@ -110,6 +110,7 @@ const MarkEntryTab: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hasExistingScores, setHasExistingScores] = useState(false);
+  const [searchStudent, setSearchStudent] = useState('');
 
   useEffect(() => {
     if (activeBatches.length > 0 && !batch) setBatch(activeBatches[0].name);
@@ -126,6 +127,7 @@ const MarkEntryTab: React.FC = () => {
       setStudents([]);
       setScores({});
       setHasExistingScores(false);
+      setSearchStudent('');
     };
     fetchExams();
   }, [batch]);
@@ -287,6 +289,18 @@ const MarkEntryTab: React.FC = () => {
             <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Loading students...</div>
           ) : (
             <>
+              <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                <div className="relative max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search student by name or roll no..."
+                    value={searchStudent}
+                    onChange={(e) => setSearchStudent(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 rounded-lg border outline-none focus:ring-2 focus:ring-indigo-100 uppercase placeholder:normal-case"
+                  />
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
@@ -299,7 +313,10 @@ const MarkEntryTab: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {students.map((student, idx) => {
+                    {students.filter(s => 
+                      s.name.toLowerCase().includes(searchStudent.toLowerCase()) || 
+                      (s.roll_number && s.roll_number.toLowerCase().includes(searchStudent.toLowerCase()))
+                    ).map((student, idx) => {
                       const s = scores[student.id] || { score: '', is_absent: false };
                       const numScore = s.score === '' ? null : Number(s.score);
                       const p = s.is_absent ? 0 : calcPct(numScore, selectedExam.max_marks);

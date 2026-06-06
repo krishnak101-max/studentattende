@@ -760,7 +760,10 @@ const ProgressReport = () => {
   const [pdfTo, setPdfTo] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [reportTitle, setReportTitle] = useState('');
   const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [viewMode, setViewMode] = useState<'individual' | 'batch'>('individual');
+  const [viewMode, setViewMode] = useState<'individual' | 'batch' | 'consolidated' | 'pta'>('individual');
+  const [ptaDate, setPtaDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [generatingConsolidated, setGeneratingConsolidated] = useState(false);
+  const [generatingPta, setGeneratingPta] = useState(false);
 
   // Exam selection for Batch PDF
   const [availableExams, setAvailableExams] = useState<any[]>([]);
@@ -884,268 +887,246 @@ const ProgressReport = () => {
         }
       }
 
-      // A4 Landscape: 297 × 210 mm  |  Each A5 card: ~148 × 210 mm
+      // A4 Landscape: 297 × 210 mm  |  4 cards per page (2 cols × 2 rows), each ~148.5 × 105 mm (A6)
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const PAGE_W = 297;
       const PAGE_H = 210;
-      const CARD_W = 148;   // exactly half of A4 landscape = A5
-      const CARD_H = 210;
-      const PAD = 6;        // inner padding
+      const CARD_W = PAGE_W / 2;   // 148.5mm
+      const CARD_H = PAGE_H / 2;   // 105mm
+      const PAD = 4;               // inner padding
 
       // ── B&W colour constants ──
       const BLACK  = [0, 0, 0]         as [number, number, number];
       const DARK   = [20, 20, 20]      as [number, number, number];
-      const MID    = [80, 80, 80]      as [number, number, number];
       const LIGHT  = [160, 160, 160]   as [number, number, number];
-      const XLIGHT = [230, 230, 230]   as [number, number, number];
       const WHITE  = [255, 255, 255]   as [number, number, number];
 
-      const drawCard = (student: any, x: number) => {
-        const y = 0;
-        const iw = CARD_W - PAD * 2;   // inner width
+      const repTitleStr = reportTitle ? reportTitle : 'Progress Report';
+      const iw = CARD_W - PAD * 2; // inner width
 
-        // ── outer border ──
+      const drawCard = (student: any, xOff: number, yOff: number) => {
+        // ── Outer border ──
         doc.setDrawColor(...BLACK);
-        doc.setLineWidth(0.8);
-        doc.rect(x, y, CARD_W, CARD_H);
+        doc.setLineWidth(0.5);
+        doc.rect(xOff, yOff, CARD_W, CARD_H);
 
-        // ── HEADER BLOCK ──
-        const hdrH = 32;
-
-        // thin decorative line inside header
-        doc.setDrawColor(...BLACK);
-        doc.setLineWidth(0.3);
-        doc.line(x + PAD, y + hdrH - 5, x + CARD_W - PAD, y + hdrH - 5);
-
-        // Title
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(16);
-        doc.setTextColor(...BLACK);
-        doc.text('Wings Coaching Center', x + CARD_W / 2, y + 12, { align: 'center' });
-
-        // Subtitle 1
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(...DARK);
-        doc.text('Karakunnu', x + CARD_W / 2, y + 18, { align: 'center' });
-
-        // Subtitle 2
+        // ── HEADER (~15mm) ──
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(...BLACK);
-        const repTitleStr = reportTitle ? reportTitle : 'Progress Report';
-        doc.text(repTitleStr, x + CARD_W / 2, y + 25, { align: 'center' });
+        doc.text('Wings Coaching Center', xOff + CARD_W / 2, yOff + 7, { align: 'center' });
 
-        // ── STUDENT INFO ──
-        let curY = hdrH + 7;
-
-        // Name row with batch badge
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(...DARK);
-        doc.text(student.name.toUpperCase(), x + PAD, curY + 4);
-
-        // Batch badge (right aligned)
-        const batchLabel = student.batch;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.setFillColor(...DARK);
-        doc.setTextColor(...WHITE);
-        const bW = batchLabel.length * 3.5 + 8;
-        doc.roundedRect(x + CARD_W - PAD - bW, curY - 2, bW, 8, 1.5, 1.5, 'F');
-        doc.text(batchLabel, x + CARD_W - PAD - bW / 2, curY + 3.8, { align: 'center' });
-
-        curY += 9;
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
-        doc.setTextColor(...MID);
-        const rollSex = `Roll No: ${student.roll_number || '—'}   ${student.sex ? `| ${student.sex}` : ''}`;
-        doc.text(rollSex, x + PAD, curY);
+        doc.setTextColor(...DARK);
+        doc.text(`Karakunnu   |   ${repTitleStr}`, xOff + CARD_W / 2, yOff + 12, { align: 'center' });
 
-        curY += 4;
-
-        // Period line
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(7);
-        doc.setTextColor(...LIGHT);
-        doc.text(`Period: ${pdfFrom} to ${pdfTo}`, x + PAD, curY);
-
-        curY += 5;
-
-        // Thin separator
-        doc.setDrawColor(...XLIGHT);
+        doc.setDrawColor(...BLACK);
         doc.setLineWidth(0.4);
-        doc.line(x + PAD, curY, x + CARD_W - PAD, curY);
-        curY += 5;
+        doc.line(xOff + PAD, yOff + 15, xOff + CARD_W - PAD, yOff + 15);
 
-        // ── ATTENDANCE SECTION ──
-        const attForStudent = (allAttendance || []).filter(a => {
+        // ── STUDENT INFO ROW (3-cell bordered table) ──
+        const infoY = yOff + 15;
+        const infoH = 11;
+        const c1W = iw * 0.42;
+        const c2W = iw * 0.20;
+        const c3W = iw - c1W - c2W;
+        const c1X = xOff + PAD;
+        const c2X = c1X + c1W;
+        const c3X = c2X + c2W;
+
+        doc.setDrawColor(...BLACK);
+        doc.setLineWidth(0.3);
+        doc.rect(c1X, infoY, c1W, infoH);
+        doc.rect(c2X, infoY, c2W, infoH);
+        doc.rect(c3X, infoY, c3W, infoH);
+
+        // Cell 1: Name + Roll
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(...BLACK);
+        const nameStr = student.name.length > 22
+          ? student.name.substring(0, 22).toUpperCase() + '…'
+          : student.name.toUpperCase();
+        doc.text(nameStr, c1X + 2, infoY + 4.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...DARK);
+        doc.text(`Roll No: ${student.roll_number || '—'}`, c1X + 2, infoY + 8.5);
+
+        // Cell 2: Batch + Sex
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(...BLACK);
+        doc.text(`Batch: ${student.batch}`, c2X + 2, infoY + 4.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...DARK);
+        doc.text(student.sex || '', c2X + 2, infoY + 8.5);
+
+        // Cell 3: Attendance
+        const attForStudent = (allAttendance || []).filter((a: any) => {
           if (a.student_id !== student.id) return false;
           const d = a.date.split('-').reverse().join('-');
           return d >= pdfFrom && d <= pdfTo;
         });
-        const presentDays = attForStudent.filter(a => a.status === 'Present').length;
+        const presentDays = attForStudent.filter((a: any) => a.status === 'Present').length;
         const totalDays = attForStudent.length;
+        const absentDays = totalDays - presentDays;
         const attPct = totalDays ? Math.round((presentDays / totalDays) * 100) : 0;
 
-        // Section heading
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(...DARK);
-        doc.text('ATTENDANCE', x + PAD, curY + 4);
-
-        // Stats (right)
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        const attStr = `${attPct}%`;
-        if (attPct >= 75) doc.setTextColor(...BLACK);
-        else doc.setTextColor(...LIGHT);
-        doc.text(attStr, x + CARD_W - PAD, curY + 4, { align: 'right' });
-
-        curY += 8;
-
-        // Attendance bar
-        const barW = iw;
-        const barH = 5;
-        doc.setFillColor(...XLIGHT);
-        doc.roundedRect(x + PAD, curY, barW, barH, 1.2, 1.2, 'F');
-        if (attPct > 0) {
-          const fill = Math.max((barW * attPct) / 100, 3);
-          doc.setFillColor(...DARK);
-          doc.roundedRect(x + PAD, curY, fill, barH, 1.2, 1.2, 'F');
-        }
-
-        curY += barH + 4;
-        doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
-        doc.setTextColor(...MID);
-        doc.text(`${presentDays} Present  /  ${totalDays - presentDays} Absent  /  ${totalDays} Total Days`, x + PAD, curY);
-        curY += 5;
-
-        // Separator
-        doc.setDrawColor(...XLIGHT);
-        doc.setLineWidth(0.4);
-        doc.line(x + PAD, curY, x + CARD_W - PAD, curY);
-        curY += 5;
-
-        // ── EXAM SCORES ──
-        const studentScores = (allScores || []).filter(sc => sc.student_id === student.id);
-        const examsData = (allExams || []).map(ex => ({
-          exam: ex,
-          score: studentScores.find(s => s.exam_id === ex.id),
-        }));
-
-        // Section heading row
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
+        doc.setTextColor(...BLACK);
+        doc.text(`${presentDays}P / ${absentDays}A / ${totalDays} Days`, c3X + 2, infoY + 4.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
         doc.setTextColor(...DARK);
-        doc.text('EXAM SCORES', x + PAD, curY + 4);
+        doc.text(`Attendance: ${attPct}%`, c3X + 2, infoY + 8.5);
 
-        // Column headers
+        // ── EXAM SCORES TABLE ──
+        const tStartY = infoY + infoH + 1;
+        const rowH = 7;
+        // Columns: Subject | Max | Score | Grade
+        const tCols = [iw * 0.46, iw * 0.16, iw * 0.21, iw * 0.17];
+        const tX = [
+          xOff + PAD,
+          xOff + PAD + tCols[0],
+          xOff + PAD + tCols[0] + tCols[1],
+          xOff + PAD + tCols[0] + tCols[1] + tCols[2],
+        ];
+
+        // Header row (solid black fill)
+        doc.setFillColor(...BLACK);
+        doc.rect(xOff + PAD, tStartY, iw, rowH, 'F');
+
+        // Header vertical dividers (white)
+        doc.setDrawColor(...WHITE);
+        doc.setLineWidth(0.2);
+        tX.slice(1).forEach(cx => doc.line(cx, tStartY, cx, tStartY + rowH));
+
+        // Header text (white)
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.5);
-        doc.setTextColor(...MID);
-        doc.text('Subject', x + PAD, curY + 10);
-        doc.text('Score', x + PAD + iw * 0.76, curY + 10, { align: 'right' });
-        doc.text('Grade', x + CARD_W - PAD, curY + 10, { align: 'right' });
+        doc.setTextColor(...WHITE);
+        doc.text('Subject', tX[0] + 2, tStartY + 4.5);
+        doc.text('Max',   tX[1] + tCols[1] / 2, tStartY + 4.5, { align: 'center' });
+        doc.text('Score', tX[2] + tCols[2] / 2, tStartY + 4.5, { align: 'center' });
+        doc.text('Grade', tX[3] + tCols[3] / 2, tStartY + 4.5, { align: 'center' });
 
-        curY += 13;
-        doc.setDrawColor(...XLIGHT);
+        // Header outer border
+        doc.setDrawColor(...BLACK);
         doc.setLineWidth(0.3);
-        doc.line(x + PAD, curY - 1, x + CARD_W - PAD, curY - 1);
+        doc.rect(xOff + PAD, tStartY, iw, rowH);
 
-        if (examsData.length === 0) {
-          doc.setFont('helvetica', 'italic');
+        // Data rows
+        const studentScores = (allScores || []).filter((sc: any) => sc.student_id === student.id);
+        const examsData = allExams.map((ex: any) => ({
+          exam: ex,
+          score: studentScores.find((s: any) => s.exam_id === ex.id),
+        }));
+
+        const maxRows = Math.min(examsData.length, 7);
+        examsData.slice(0, maxRows).forEach((es: any, i: number) => {
+          const rowY = tStartY + rowH + i * rowH;
+          const isAbsent = es.score?.is_absent;
+          const rawScore = es.score?.score;
+          const max = es.exam.max_marks;
+          const scorePct = isAbsent || rawScore === null || rawScore === undefined
+            ? 0 : Math.round((rawScore / max) * 100);
+          const gradeLabel = isAbsent ? 'AB' : getPRGradeLabel(scorePct, pdfBatch);
+          const scoreText = isAbsent ? 'AB'
+            : (rawScore !== null && rawScore !== undefined ? String(rawScore) : '—');
+          const subjectTitle = es.exam.subject
+            ? es.exam.subject
+            : (es.exam.title.length > 24 ? es.exam.title.substring(0, 24) + '…' : es.exam.title);
+
+          // Row border
+          doc.setDrawColor(...BLACK);
+          doc.setLineWidth(0.25);
+          doc.rect(xOff + PAD, rowY, iw, rowH);
+          tX.slice(1).forEach(cx => doc.line(cx, rowY, cx, rowY + rowH));
+
+          // Row text
+          doc.setFont('helvetica', 'normal');
           doc.setFontSize(7);
+          doc.setTextColor(...BLACK);
+          doc.text(subjectTitle, tX[0] + 2, rowY + 4.5);
+
+          doc.setFont('helvetica', 'bold');
+          doc.text(String(max),   tX[1] + tCols[1] / 2, rowY + 4.5, { align: 'center' });
+          doc.text(scoreText,     tX[2] + tCols[2] / 2, rowY + 4.5, { align: 'center' });
+          doc.text(gradeLabel,    tX[3] + tCols[3] / 2, rowY + 4.5, { align: 'center' });
+        });
+
+        if (examsData.length > maxRows) {
+          const moreY = tStartY + rowH + maxRows * rowH + 4;
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(6);
           doc.setTextColor(...LIGHT);
-          doc.text('No exams in this period', x + CARD_W / 2, curY + 6, { align: 'center' });
-          curY += 14;
-        } else {
-          const maxRows = Math.min(examsData.length, 7);
-          examsData.slice(0, maxRows).forEach((es, i) => {
-            const rowH = 8;
-            const rowY = curY + i * rowH;
-
-            // Alternating row bg
-            if (i % 2 === 0) {
-              doc.setFillColor(...XLIGHT);
-              doc.rect(x + PAD - 1, rowY - 1.5, iw + 2, rowH, 'F');
-            }
-
-            const isAbsent = es.score?.is_absent;
-            const rawScore = es.score?.score;
-            const max = es.exam.max_marks;
-            const scorePct = isAbsent || rawScore === null || rawScore === undefined
-              ? 0 : Math.round((rawScore / max) * 100);
-            const gradeLabel = isAbsent ? 'AB' : getPRGradeLabel(scorePct, pdfBatch);
-
-            // Exam title
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(7);
-            doc.setTextColor(...DARK);
-            const title = es.exam.subject ? es.exam.subject : (es.exam.title.length > 28 ? es.exam.title.substring(0, 28) + '…' : es.exam.title);
-            doc.text(title, x + PAD, rowY + 4.5);
-
-            // Score
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7);
-            const scoreText = isAbsent ? 'AB' : (rawScore !== null && rawScore !== undefined ? `${rawScore}/${max}` : '—');
-            if (isAbsent) doc.setTextColor(...LIGHT); else doc.setTextColor(...DARK);
-            doc.text(scoreText, x + PAD + iw * 0.76, rowY + 4.5, { align: 'right' });
-
-            // Grade — bold, black
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7.5);
-            doc.setTextColor(...DARK);
-            doc.text(gradeLabel, x + CARD_W - PAD, rowY + 4.5, { align: 'right' });
-          });
-
-          if (examsData.length > maxRows) {
-            const moreY = curY + maxRows * 8 + 3;
-            doc.setFont('helvetica', 'italic');
-            doc.setFontSize(6.5);
-            doc.setTextColor(...LIGHT);
-            doc.text(`+ ${examsData.length - maxRows} more exams…`, x + PAD, moreY);
-          }
+          doc.text(`+${examsData.length - maxRows} more exams…`, xOff + PAD + 2, moreY);
         }
 
-        // ── FOOTER ──
-        const footY = CARD_H - 8;
-        doc.setDrawColor(...XLIGHT);
-        doc.setLineWidth(0.4);
-        doc.line(x + PAD, footY - 2, x + CARD_W - PAD, footY - 2);
+        // ── SIGNATURE ROW (fixed at card bottom) ──
+        const sigY = yOff + CARD_H - 15;
+        const sigH = 13;
+        const halfW = iw / 2;
 
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(6);
-        doc.setTextColor(...LIGHT);
-        doc.text(`Generated: ${format(new Date(), 'dd-MM-yyyy')}`, x + PAD, footY + 2);
-        doc.setTextColor(...DARK);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6);
-        doc.text('Wings Coaching Center, Karakunnu', x + CARD_W - PAD, footY + 2, { align: 'right' });
+        doc.setDrawColor(...BLACK);
+        doc.setLineWidth(0.3);
+        doc.rect(xOff + PAD, sigY, halfW, sigH);
+        doc.rect(xOff + PAD + halfW, sigY, halfW, sigH);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...BLACK);
+        doc.text('Class Teacher Sign:', xOff + PAD + 2, sigY + 4.5);
+        doc.text('Parent Sign:', xOff + PAD + halfW + 2, sigY + 4.5);
+
+        // Dotted signature lines
+        doc.setDrawColor(...DARK);
+        doc.setLineWidth(0.2);
+        (doc as any).setLineDash([0.5, 1.5]);
+        doc.line(xOff + PAD + 2, sigY + 10, xOff + PAD + halfW - 3, sigY + 10);
+        doc.line(xOff + PAD + halfW + 2, sigY + 10, xOff + CARD_W - PAD - 2, sigY + 10);
+        (doc as any).setLineDash([]);
+
+        // (no footer text — removed to avoid overlap with signature section)
       };
 
-      // ── RENDER PAGES ──
+      // ── DRAW CUT GUIDES on current page ──
+      const drawCutGuides = () => {
+        doc.setDrawColor(150, 150, 150);
+        doc.setLineWidth(0.2);
+        (doc as any).setLineDash([2, 2]);
+        // Vertical centre line
+        doc.line(CARD_W, 2, CARD_W, PAGE_H - 2);
+        // Horizontal centre line
+        doc.line(2, CARD_H, PAGE_W - 2, CARD_H);
+        (doc as any).setLineDash([]);
+        // ✂ labels
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5);
+        doc.setTextColor(150, 150, 150);
+        doc.text('✂', CARD_W, 1.5, { align: 'center' });
+        doc.text('✂', 1.5, CARD_H - 0.5);
+      };
+
+      // ── RENDER PAGES (4 cards per page: 2 cols × 2 rows) ──
       for (let i = 0; i < studs.length; i++) {
-        const col = i % 2;
-        if (col === 0 && i > 0) doc.addPage();
+        const cardInPage = i % 4;
+        if (cardInPage === 0 && i > 0) {
+          drawCutGuides();
+          doc.addPage();
+        }
 
-        const xPos = col === 0 ? 0 : CARD_W;
-        drawCard(studs[i], xPos);
+        const col = cardInPage % 2;
+        const row = Math.floor(cardInPage / 2);
+        drawCard(studs[i], col * CARD_W, row * CARD_H);
 
-        // Dashed cut guide between the two cards
-        if (col === 0 && i + 1 < studs.length) {
-          doc.setDrawColor(...XLIGHT);
-          doc.setLineWidth(0.25);
-          (doc as any).setLineDash([3, 3]);
-          doc.line(CARD_W, 3, CARD_W, PAGE_H - 3);
-          (doc as any).setLineDash([]);
-
-          // Scissor icon hint
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(5);
-          doc.setTextColor(...LIGHT);
-          doc.text('✂ cut', CARD_W, 2, { align: 'center' });
+        // Draw cut guides on the very last card
+        if (i === studs.length - 1) {
+          drawCutGuides();
         }
       }
 
@@ -1159,18 +1140,241 @@ const ProgressReport = () => {
     }
   };
 
+  // ── CONSOLIDATED MARKS REPORT (A4 Portrait) ──────────────────────────────
+  const generateConsolidatedPDF = async () => {
+    if (!pdfBatch) { toast.error('Select a batch'); return; }
+    if (selectedExamIds.length === 0) { toast.error('Select at least one exam'); return; }
+    setGeneratingConsolidated(true);
+    try {
+      const { data: studs } = await supabase.from('students').select('*')
+        .eq('batch', pdfBatch).neq('batch', 'ALUMNI')
+        .order('roll_number', { ascending: true });
+      if (!studs?.length) { toast.error('No students in batch'); return; }
+
+      const selExams = availableExams
+        .filter(e => selectedExamIds.includes(e.id))
+        .sort((a, b) => a.exam_date.localeCompare(b.exam_date));
+
+      let allScores: any[] = [];
+      if (selExams.length > 0) {
+        const { data } = await supabase.from('exam_scores').select('*')
+          .in('exam_id', selExams.map(e => e.id));
+        allScores = data || [];
+      }
+
+      // Build rows: per student, compute per-exam score + total
+      const rows = studs.map(student => {
+        const studentScores = allScores.filter(sc => sc.student_id === student.id);
+        let total = 0;
+        const subScores = selExams.map(ex => {
+          const sc = studentScores.find(s => s.exam_id === ex.id);
+          if (!sc || sc.is_absent) return { display: sc?.is_absent ? 'AB' : '—', value: 0, scored: false };
+          const v = sc.score !== null && sc.score !== undefined ? sc.score : null;
+          if (v !== null) { total += v; return { display: String(v), value: v, scored: true }; }
+          return { display: '—', value: 0, scored: false };
+        });
+        return { student, subScores, total };
+      });
+
+      // Sort by total descending → rank
+      rows.sort((a, b) => b.total - a.total);
+
+      const totalMax = selExams.reduce((s, e) => s + (e.max_marks || 0), 0);
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const BLACK = [0, 0, 0] as [number, number, number];
+      const WHITE = [255, 255, 255] as [number, number, number];
+      const DARK  = [20, 20, 20]  as [number, number, number];
+      const LIGHT = [160, 160, 160] as [number, number, number];
+
+      // ── Header ──
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(...BLACK);
+      doc.text('Wings Coaching Center, Karakunnu', 105, 14, { align: 'center' });
+      doc.setFontSize(11);
+      doc.text('Consolidated Marks Report', 105, 21, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...DARK);
+      const examLabel = reportTitle || selExams.map(e => e.subject || e.title).join(', ');
+      doc.text(`Batch: ${pdfBatch}`, 14, 28);
+      doc.text(`Exam: ${examLabel}`, 105, 28, { align: 'center' });
+      doc.text(`Date: ${format(new Date(), 'dd-MM-yyyy')}`, 196, 28, { align: 'right' });
+      doc.setDrawColor(...BLACK);
+      doc.setLineWidth(0.4);
+      doc.line(14, 31, 196, 31);
+
+      // ── Table ──
+      const head = [[
+        'Rank', 'Roll No', 'Student Name',
+        ...selExams.map(e => `${e.subject || e.title}\n/${e.max_marks}`),
+        `Total\n/${totalMax}`
+      ]];
+
+      const body = rows.map((r, idx) => [
+        idx + 1,
+        r.student.roll_number || '—',
+        r.student.name,
+        ...r.subScores.map(s => s.display),
+        r.total > 0 ? r.total : '—'
+      ]);
+
+      (doc as any).autoTable({
+        startY: 34,
+        head,
+        body,
+        theme: 'grid',
+        styles: { fontSize: 8, halign: 'center', cellPadding: 2.5, textColor: [...BLACK] },
+        headStyles: { fillColor: [...BLACK], textColor: [...WHITE], fontStyle: 'bold', fontSize: 7.5 },
+        columnStyles: {
+          0: { cellWidth: 12 },
+          1: { cellWidth: 14 },
+          2: { cellWidth: 40, halign: 'left' },
+        },
+        alternateRowStyles: { fillColor: [255, 255, 255] },
+        tableLineColor: [...BLACK],
+        tableLineWidth: 0.3,
+      });
+
+      // ── Footer ──
+      const finalY = (doc as any).lastAutoTable.finalY + 10;
+      doc.setDrawColor(...DARK);
+      doc.setLineWidth(0.3);
+      (doc as any).setLineDash([0.5, 1.5]);
+      doc.line(14, finalY + 8, 90, finalY + 8);
+      doc.line(110, finalY + 8, 196, finalY + 8);
+      (doc as any).setLineDash([]);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...DARK);
+      doc.text('Class Teacher Sign', 14, finalY + 12);
+      doc.text('Principal Sign', 110, finalY + 12);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6);
+      doc.setTextColor(...LIGHT);
+      doc.text(`Total Students: ${studs.length} | Generated: ${format(new Date(), 'dd-MM-yyyy')}`, 105, finalY + 18, { align: 'center' });
+
+      doc.save(`Consolidated_${pdfBatch}_${reportTitle || 'Report'}.pdf`);
+      toast.success('✅ Consolidated Report Downloaded!');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed: ' + err.message);
+    } finally {
+      setGeneratingConsolidated(false);
+    }
+  };
+
+  // ── PTA MEETING REGISTER (A4 Portrait) ────────────────────────────────────
+  const generatePTARegister = async () => {
+    if (!pdfBatch) { toast.error('Select a batch'); return; }
+    setGeneratingPta(true);
+    try {
+      const { data: studs } = await supabase.from('students').select('*')
+        .eq('batch', pdfBatch).neq('batch', 'ALUMNI')
+        .order('roll_number', { ascending: true });
+      if (!studs?.length) { toast.error('No students in batch'); return; }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const BLACK = [0, 0, 0]   as [number, number, number];
+      const WHITE = [255, 255, 255] as [number, number, number];
+      const DARK  = [20, 20, 20]   as [number, number, number];
+      const LIGHT = [160, 160, 160] as [number, number, number];
+
+      // ── Header ──
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(...BLACK);
+      doc.text('Wings Coaching Center, Karakunnu', 105, 14, { align: 'center' });
+      doc.setFontSize(11);
+      doc.text('PTA Meeting Register', 105, 21, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...DARK);
+      const formattedPtaDate = format(new Date(ptaDate), 'dd-MM-yyyy');
+      doc.text(`Batch: ${pdfBatch}`, 14, 28);
+      doc.text(`Date: ${formattedPtaDate}`, 105, 28, { align: 'center' });
+      doc.text(`Total Students: ${studs.length}`, 196, 28, { align: 'right' });
+      doc.setDrawColor(...BLACK);
+      doc.setLineWidth(0.4);
+      doc.line(14, 31, 196, 31);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.text('Parent Attendance & Signature Sheet', 105, 36, { align: 'center' });
+
+      // ── Table ──
+      const head = [[ 'Roll No', 'Student Name', 'Parent / Guardian Name', 'Signature' ]];
+      const body = studs.map(s => [
+        s.roll_number || '—',
+        s.name,
+        '',
+        ''
+      ]);
+
+      (doc as any).autoTable({
+        startY: 39,
+        head,
+        body,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 4, textColor: [...BLACK] },
+        headStyles: { fillColor: [...BLACK], textColor: [...WHITE], fontStyle: 'bold', fontSize: 9 },
+        columnStyles: {
+          0: { cellWidth: 18, halign: 'center' },
+          1: { cellWidth: 55 },
+          2: { cellWidth: 65 },
+          3: { cellWidth: 44 },
+        },
+        alternateRowStyles: { fillColor: [255, 255, 255] },
+        tableLineColor: [...BLACK],
+        tableLineWidth: 0.3,
+        rowPageBreak: 'avoid',
+      });
+
+      // ── Footer ──
+      const finalY = (doc as any).lastAutoTable.finalY + 10;
+      doc.setDrawColor(...DARK);
+      doc.setLineWidth(0.3);
+      (doc as any).setLineDash([0.5, 1.5]);
+      doc.line(14, finalY + 8, 90, finalY + 8);
+      doc.line(110, finalY + 8, 196, finalY + 8);
+      (doc as any).setLineDash([]);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...DARK);
+      doc.text('Class Teacher Sign', 14, finalY + 12);
+      doc.text('Principal Sign', 110, finalY + 12);
+      doc.setFontSize(7.5);
+      doc.text(`Present Parents: _______ | Absent Parents: _______`, 105, finalY + 18, { align: 'center' });
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6);
+      doc.setTextColor(...LIGHT);
+      doc.text(`Generated: ${format(new Date(), 'dd-MM-yyyy')}`, 196, finalY + 22, { align: 'right' });
+
+      doc.save(`PTA_Register_${pdfBatch}_${formattedPtaDate}.pdf`);
+      toast.success('✅ PTA Register Downloaded!');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed: ' + err.message);
+    } finally {
+      setGeneratingPta(false);
+    }
+  };
+
+
   return (
     <div className="space-y-6">
       {/* Sub-tabs */}
       <div className="flex gap-3">
         {[
-          { id: 'individual', label: '👤 Individual View',  icon: <TrendingUp className="h-4 w-4" /> },
-          { id: 'batch',      label: '📄 Batch PDF (A5×2)', icon: <Award className="h-4 w-4" /> },
+          { id: 'individual',   label: '👤 Individual View',       icon: <TrendingUp className="h-4 w-4" /> },
+          { id: 'batch',        label: '📄 Batch Score Cards',      icon: <Award className="h-4 w-4" /> },
+          { id: 'consolidated', label: '📊 Consolidated Report',    icon: <BarChart2 className="h-4 w-4" /> },
+          { id: 'pta',          label: '🤝 PTA Register',           icon: <Users className="h-4 w-4" /> },
         ].map(t => (
           <button
             key={t.id}
             onClick={() => setViewMode(t.id as any)}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
               viewMode === t.id
                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
                 : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300'
@@ -1337,7 +1541,7 @@ const ProgressReport = () => {
             </div>
             <div>
               <h2 className="text-xl font-black text-slate-800">Batch Progress Report PDF</h2>
-              <p className="text-slate-500 text-sm">A4 Landscape · 2 × A5 cards per sheet · Black &amp; White · Print-ready</p>
+              <p className="text-slate-500 text-sm">A4 Landscape · 4 × A6 cards per sheet · Black &amp; White · Print-ready</p>
             </div>
           </div>
 
@@ -1438,28 +1642,37 @@ const ProgressReport = () => {
           <div className="mb-6 border border-slate-200 rounded-xl overflow-hidden">
             <div className="bg-slate-800 text-white px-4 py-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-white/40" />
-              PDF Preview — A4 Landscape (297×210mm) · 2 A5 cards per page
+              PDF Preview — A4 Landscape (297×210mm) · 4 A6 cards per page (2×2)
             </div>
-            <div className="bg-slate-50 p-4 flex gap-2 items-stretch">
-              {[1, 2].map(i => (
-                <div key={i} className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-3 text-center text-xs text-slate-400 space-y-1.5">
-                  <div className="text-slate-800 text-center py-2 rounded font-bold text-sm">Wings Coaching Center</div>
-                  <div className="text-slate-700 font-bold">Karakunnu</div>
-                  <div className="text-slate-800 font-bold">{reportTitle ? `${reportTitle} Progress Report` : 'Progress Report'}</div>
-                  <div className="h-px bg-slate-400 my-1" />
-                  <div className="text-left space-y-1">
-                    <div className="h-2 bg-slate-200 rounded w-4/5" />
-                    <div className="h-2 bg-slate-200 rounded w-2/5" />
+            <div className="bg-slate-50 p-3 grid grid-cols-2 gap-1">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="border border-dashed border-slate-300 rounded p-2 text-center text-[10px] text-slate-400 space-y-1">
+                  <div className="font-bold text-slate-700 text-xs">Wings Coaching Center</div>
+                  <div className="text-slate-500" style={{fontSize:'9px'}}>Karakunnu | {reportTitle || 'Progress Report'}</div>
+                  <div className="h-px bg-slate-300 my-1" />
+                  <div className="grid grid-cols-4 gap-0.5 text-[8px]">
+                    <div className="col-span-2 bg-slate-200 rounded h-2" />
+                    <div className="bg-slate-200 rounded h-2" />
+                    <div className="bg-slate-200 rounded h-2" />
+                    {[...Array(8)].map((_, r) => (
+                      <React.Fragment key={r}>
+                        <div className="col-span-2 bg-slate-100 rounded h-1.5" />
+                        <div className="bg-slate-100 rounded h-1.5" />
+                        <div className="bg-slate-100 rounded h-1.5" />
+                      </React.Fragment>
+                    ))}
                   </div>
-                  <div className="h-2.5 bg-slate-300 rounded-full w-full mt-2" />
-                  <div className="text-slate-400 text-[10px] mt-1">Exam scores table…</div>
+                  <div className="grid grid-cols-2 gap-0.5 mt-1">
+                    <div className="bg-slate-100 rounded h-2" />
+                    <div className="bg-slate-100 rounded h-2" />
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6 text-sm text-slate-600 font-medium">
-            🖨️ <strong>Print tip:</strong> Print in <strong>A4 Landscape, B&amp;W</strong>. Cut along the dashed centre line to get individual A5 progress cards for each student.
+            🖨️ <strong>Print tip:</strong> Print in <strong>A4 Landscape, B&amp;W</strong>. Cut along the dashed lines (vertical + horizontal) to get 4 individual A6 progress cards per sheet.
           </div>
 
           <button
@@ -1469,6 +1682,133 @@ const ProgressReport = () => {
           >
             <FileDown className="h-5 w-5" />
             {generatingPdf ? 'Generating PDF...' : 'Download Batch Progress PDF'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Consolidated Report ── */}
+      {viewMode === 'consolidated' && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 max-w-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 bg-indigo-700 rounded-xl flex items-center justify-center">
+              <BarChart2 className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-800">Consolidated Marks Report</h2>
+              <p className="text-slate-500 text-sm">A4 Portrait · All students ranked by total marks · Print-ready</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Batch</label>
+              <div className="relative">
+                <select value={pdfBatch} onChange={e => setPdfBatch(e.target.value)}
+                  className="w-full pl-4 pr-8 py-3 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-100 font-semibold appearance-none">
+                  {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Exam / Report Title</label>
+              <input type="text" value={reportTitle} onChange={e => setReportTitle(e.target.value)}
+                placeholder="e.g. First Terminal Examination"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+            </div>
+          </div>
+
+          {/* Exam Checklist (reused) */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                Select Exams (each becomes a column)
+                <span className="ml-2 text-indigo-500">({selectedExamIds.length}/{availableExams.length})</span>
+              </label>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setSelectedExamIds(availableExams.map(e => e.id))}
+                  className="text-xs text-indigo-600 font-bold hover:underline">All</button>
+                <span className="text-slate-300">|</span>
+                <button type="button" onClick={() => setSelectedExamIds([])}
+                  className="text-xs text-slate-400 font-bold hover:underline">Clear</button>
+              </div>
+            </div>
+            {loadingExams ? (
+              <div className="p-4 text-center text-slate-400 text-sm animate-pulse">Loading exams...</div>
+            ) : availableExams.length === 0 ? (
+              <div className="p-4 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">No exams for batch {pdfBatch}</div>
+            ) : (
+              <div className="border border-slate-200 rounded-xl overflow-hidden max-h-52 overflow-y-auto">
+                {availableExams.map(exam => {
+                  const isChecked = selectedExamIds.includes(exam.id);
+                  return (
+                    <label key={exam.id} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-slate-50 last:border-0 transition-colors ${isChecked ? 'bg-indigo-50' : 'bg-white hover:bg-slate-50'}`}>
+                      <input type="checkbox" checked={isChecked}
+                        onChange={() => setSelectedExamIds(prev => isChecked ? prev.filter(id => id !== exam.id) : [...prev, exam.id])}
+                        className="w-4 h-4 rounded accent-indigo-600" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm text-slate-800 truncate">{exam.subject || exam.title}</p>
+                        {exam.subject && <p className="text-xs text-slate-400 truncate">{exam.title}</p>}
+                      </div>
+                      <p className="text-xs font-bold text-slate-500 shrink-0">Max {exam.max_marks}</p>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-6 text-sm text-indigo-700 font-medium">
+            📊 Students sorted by <strong>Total Marks — highest to lowest (Rank 1 = top scorer)</strong>. No grade column.
+          </div>
+
+          <button onClick={generateConsolidatedPDF} disabled={generatingConsolidated || !pdfBatch || selectedExamIds.length === 0}
+            className="flex items-center gap-2 px-8 py-4 bg-indigo-700 hover:bg-indigo-800 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:shadow-none text-base">
+            <FileDown className="h-5 w-5" />
+            {generatingConsolidated ? 'Generating...' : 'Download Consolidated Report'}
+          </button>
+        </div>
+      )}
+
+      {/* ── PTA Register ── */}
+      {viewMode === 'pta' && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 max-w-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center">
+              <Users className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-800">PTA Meeting Register</h2>
+              <p className="text-slate-500 text-sm">A4 Portrait · Parent name + signature sheet · Print-ready</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Batch</label>
+              <div className="relative">
+                <select value={pdfBatch} onChange={e => setPdfBatch(e.target.value)}
+                  className="w-full pl-4 pr-8 py-3 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-100 font-semibold appearance-none">
+                  {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Meeting Date</label>
+              <input type="date" value={ptaDate} onChange={e => setPtaDate(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-100 font-semibold" />
+            </div>
+          </div>
+
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 mb-6 text-sm text-emerald-800 font-medium">
+            🤝 Generates a register with student names pre-filled. Columns for <strong>Parent/Guardian Name</strong> and <strong>Signature</strong> are left blank for parents to fill in during the PTA meeting.
+          </div>
+
+          <button onClick={generatePTARegister} disabled={generatingPta || !pdfBatch}
+            className="flex items-center gap-2 px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:shadow-none text-base">
+            <FileDown className="h-5 w-5" />
+            {generatingPta ? 'Generating...' : 'Download PTA Register'}
           </button>
         </div>
       )}

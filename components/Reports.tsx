@@ -762,12 +762,32 @@ const ProgressReport = () => {
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [viewMode, setViewMode] = useState<'individual' | 'batch'>('individual');
 
+  // Exam selection for Batch PDF
+  const [availableExams, setAvailableExams] = useState<any[]>([]);
+  const [selectedExamIds, setSelectedExamIds] = useState<string[]>([]);
+  const [loadingExams, setLoadingExams] = useState(false);
+
   useEffect(() => {
     if (BATCHES.length > 0) {
       if (!selBatch) setSelBatch(BATCHES[0]);
       if (!pdfBatch) setPdfBatch(BATCHES[0]);
     }
   }, [BATCHES]);
+
+  // Fetch exams when pdfBatch changes
+  useEffect(() => {
+    if (!pdfBatch) return;
+    const fetchExams = async () => {
+      setLoadingExams(true);
+      const { data } = await supabase.from('exams').select('*')
+        .eq('batch', pdfBatch).order('exam_date', { ascending: true });
+      const exams = data || [];
+      setAvailableExams(exams);
+      setSelectedExamIds(exams.map((e: any) => e.id)); // select all by default
+      setLoadingExams(false);
+    };
+    fetchExams();
+  }, [pdfBatch]);
 
   useEffect(() => {
     if (!selBatch) return;
@@ -839,13 +859,13 @@ const ProgressReport = () => {
         }
       }
 
-      const { data: allExams } = await supabase.from('exams').select('*')
-        .eq('batch', pdfBatch).gte('exam_date', pdfFrom).lte('exam_date', pdfTo)
-        .order('exam_date');
+      // Use only the explicitly selected exams (from the checklist)
+      const allExams = availableExams.filter(e => selectedExamIds.includes(e.id))
+        .sort((a, b) => a.exam_date.localeCompare(b.exam_date));
 
-      // Fetch exam scores with pagination
+      // Fetch exam scores with pagination for the selected exam IDs
       let allScores: any[] = [];
-      const examIds = (allExams || []).map(e => e.id);
+      const examIds = allExams.map(e => e.id);
       if (examIds.length > 0) {
         let scorePage = 0;
         let scoresHasMore = true;
@@ -913,7 +933,7 @@ const ProgressReport = () => {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(...BLACK);
-        const repTitleStr = reportTitle ? `${reportTitle} Progress Report` : 'Progress Report';
+        const repTitleStr = reportTitle ? reportTitle : 'Progress Report';
         doc.text(repTitleStr, x + CARD_W / 2, y + 25, { align: 'center' });
 
         // ── STUDENT INFO ──
@@ -1321,7 +1341,8 @@ const ProgressReport = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {/* Row 1: Batch + Report Title */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Batch</label>
               <div className="relative">
@@ -1333,20 +1354,84 @@ const ProgressReport = () => {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Exam Title</label>
-              <input type="text" value={reportTitle} onChange={e => setReportTitle(e.target.value)} placeholder="(Optional) e.g. Unit Test"
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Report Title</label>
+              <input type="text" value={reportTitle} onChange={e => setReportTitle(e.target.value)}
+                placeholder="e.g. First Term Examination 2026"
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+              <p className="text-[11px] text-slate-400 mt-1">Prints exactly as typed. Defaults to "Progress Report" if empty.</p>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">From Date</label>
-              <input type="date" value={pdfFrom} onChange={e => setPdfFrom(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+          </div>
+
+          {/* Row 2: Attendance Date Range */}
+          <div className="mb-4">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Attendance Period</label>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">From Date</label>
+                <input type="date" value={pdfFrom} onChange={e => setPdfFrom(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">To Date</label>
+                <input type="date" value={pdfTo} onChange={e => setPdfTo(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">To Date</label>
-              <input type="date" value={pdfTo} onChange={e => setPdfTo(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-semibold" />
+          </div>
+
+          {/* Row 3: Exam / Subject Selection */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                Select Exams to Include on Scorecard
+                <span className="ml-2 text-indigo-500">({selectedExamIds.length} / {availableExams.length} selected)</span>
+              </label>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setSelectedExamIds(availableExams.map(e => e.id))}
+                  className="text-xs text-indigo-600 font-bold hover:underline">Select All</button>
+                <span className="text-slate-300">|</span>
+                <button type="button" onClick={() => setSelectedExamIds([])}
+                  className="text-xs text-slate-400 font-bold hover:underline">Clear</button>
+              </div>
             </div>
+            {loadingExams ? (
+              <div className="p-4 text-center text-slate-400 text-sm animate-pulse">Loading exams...</div>
+            ) : availableExams.length === 0 ? (
+              <div className="p-4 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">No exams found for batch {pdfBatch}</div>
+            ) : (
+              <div className="border border-slate-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                {availableExams.map(exam => {
+                  const isChecked = selectedExamIds.includes(exam.id);
+                  return (
+                    <label key={exam.id}
+                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-slate-50 last:border-0 transition-colors ${
+                        isChecked ? 'bg-indigo-50' : 'bg-white hover:bg-slate-50'
+                      }`}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setSelectedExamIds(prev =>
+                            isChecked ? prev.filter(id => id !== exam.id) : [...prev, exam.id]
+                          );
+                        }}
+                        className="w-4 h-4 rounded accent-indigo-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm text-slate-800 truncate">
+                          {exam.subject ? exam.subject : exam.title}
+                        </p>
+                        {exam.subject && <p className="text-xs text-slate-400 truncate">{exam.title}</p>}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-bold text-slate-500">{exam.exam_date}</p>
+                        <p className="text-[11px] text-slate-400">Max {exam.max_marks}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Preview card mockup */}

@@ -5,8 +5,9 @@ import { format, parse } from 'date-fns';
 import { supabase } from '../services/supabase';
 import { StudentStats, Exam, ExamScore } from '../types';
 import { useBatches } from '../context/BatchContext';
-import { FileDown, Search, FileText, ChevronDown, Check, ClipboardCopy, Users, BarChart2, Award, TrendingUp } from 'lucide-react';
+import { FileDown, Search, FileText, ChevronDown, Check, ClipboardCopy, Users, BarChart2, Award, TrendingUp, FileSpreadsheet } from 'lucide-react';
 import toast from 'react-hot-toast';
+import Papa from 'papaparse';
 
 const Reports = () => {
   const [activeTab, setActiveTab] = useState<'individual' | 'batch' | 'joins' | 'progress'>('individual');
@@ -763,6 +764,7 @@ const ProgressReport = () => {
   const [viewMode, setViewMode] = useState<'individual' | 'batch' | 'consolidated' | 'pta'>('individual');
   const [ptaDate, setPtaDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [generatingConsolidated, setGeneratingConsolidated] = useState(false);
+  const [generatingConsolidatedExcel, setGeneratingConsolidatedExcel] = useState(false);
   const [generatingPta, setGeneratingPta] = useState(false);
 
   // Exam selection for Batch PDF
@@ -1265,6 +1267,82 @@ const ProgressReport = () => {
     }
   };
 
+  const generateConsolidatedExcel = async () => {
+    if (!pdfBatch) { toast.error('Select a batch'); return; }
+    if (selectedExamIds.length === 0) { toast.error('Select at least one exam'); return; }
+    setGeneratingConsolidatedExcel(true);
+    try {
+      const { data: studs } = await supabase.from('students').select('*')
+        .eq('batch', pdfBatch).neq('batch', 'ALUMNI')
+        .order('roll_number', { ascending: true });
+      if (!studs?.length) { toast.error('No students in batch'); return; }
+
+      const selExams = availableExams
+        .filter(e => selectedExamIds.includes(e.id))
+        .sort((a, b) => a.exam_date.localeCompare(b.exam_date));
+
+      let allScores: any[] = [];
+      if (selExams.length > 0) {
+        const { data } = await supabase.from('exam_scores').select('*')
+          .in('exam_id', selExams.map(e => e.id));
+        allScores = data || [];
+      }
+
+      // Build rows: per student, compute per-exam score + total
+      const rows = studs.map(student => {
+        const studentScores = allScores.filter(sc => sc.student_id === student.id);
+        let total = 0;
+        const subScores = selExams.map(ex => {
+          const sc = studentScores.find(s => s.exam_id === ex.id);
+          if (!sc || sc.is_absent) return { display: sc?.is_absent ? 'AB' : '—', value: 0, scored: false };
+          const v = sc.score !== null && sc.score !== undefined ? sc.score : null;
+          if (v !== null) { total += v; return { display: String(v), value: v, scored: true }; }
+          return { display: '—', value: 0, scored: false };
+        });
+        return { student, subScores, total };
+      });
+
+      // Sort by total descending → rank
+      rows.sort((a, b) => b.total - a.total);
+
+      const totalMax = selExams.reduce((s, e) => s + (e.max_marks || 0), 0);
+
+      // Prepare data for Excel/CSV export
+      const headers = [
+        'Rank',
+        'Roll No',
+        'Student Name',
+        ...selExams.map(e => `${e.subject || e.title} (Max: ${e.max_marks})`),
+        `Total (Max: ${totalMax})`
+      ];
+
+      const csvRows = rows.map((r, idx) => [
+        idx + 1,
+        r.student.roll_number || '—',
+        r.student.name,
+        ...r.subScores.map(s => s.display),
+        r.total > 0 ? r.total : '—'
+      ]);
+
+      const csv = Papa.unparse({
+        fields: headers,
+        data: csvRows
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `Consolidated_${pdfBatch}_${reportTitle || 'Report'}.csv`;
+      link.click();
+      toast.success('✅ Consolidated Excel Sheet (CSV) Downloaded!');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed: ' + err.message);
+    } finally {
+      setGeneratingConsolidatedExcel(false);
+    }
+  };
+
   // ── PTA MEETING REGISTER (A4 Portrait) ────────────────────────────────────
   const generatePTARegister = async () => {
     if (!pdfBatch) { toast.error('Select a batch'); return; }
@@ -1762,11 +1840,18 @@ const ProgressReport = () => {
             📊 Students sorted by <strong>Total Marks — highest to lowest (Rank 1 = top scorer)</strong>. No grade column.
           </div>
 
-          <button onClick={generateConsolidatedPDF} disabled={generatingConsolidated || !pdfBatch || selectedExamIds.length === 0}
-            className="flex items-center gap-2 px-8 py-4 bg-indigo-700 hover:bg-indigo-800 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:shadow-none text-base">
-            <FileDown className="h-5 w-5" />
-            {generatingConsolidated ? 'Generating...' : 'Download Consolidated Report'}
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button onClick={generateConsolidatedPDF} disabled={generatingConsolidated || !pdfBatch || selectedExamIds.length === 0}
+              className="flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-700 hover:bg-indigo-800 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:shadow-none text-sm md:text-base flex-1">
+              <FileDown className="h-5 w-5" />
+              {generatingConsolidated ? 'Generating PDF...' : 'Download Consolidated PDF'}
+            </button>
+            <button onClick={generateConsolidatedExcel} disabled={generatingConsolidatedExcel || !pdfBatch || selectedExamIds.length === 0}
+              className="flex items-center justify-center gap-2 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:shadow-none text-sm md:text-base flex-1">
+              <FileSpreadsheet className="h-5 w-5" />
+              {generatingConsolidatedExcel ? 'Generating Excel...' : 'Download Consolidated Excel'}
+            </button>
+          </div>
         </div>
       )}
 

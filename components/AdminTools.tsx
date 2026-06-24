@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock, Plus, Eye, EyeOff, FileText, Calendar, ClipboardCopy, Users, History, ArrowRight } from 'lucide-react';
+import { AlertTriangle, Trash2, Shield, Download, Lock, CheckCircle2, Unlock, Plus, Eye, EyeOff, FileText, Calendar, ClipboardCopy, Users, History, ArrowRight, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useBatches } from '../context/BatchContext';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { format } from 'date-fns';
+import Papa from 'papaparse';
 
 const AdminTools = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -37,6 +38,10 @@ const AdminTools = () => {
   const [sheetBatch, setSheetBatch] = useState('');
   const [sheetMonth, setSheetMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [sheetLoading, setSheetLoading] = useState(false);
+
+  // Student List Excel Export
+  const [exportBatch, setExportBatch] = useState('ALL');
+  const [exportLoading, setExportLoading] = useState(false);
 
   const fetchAllStudents = async () => {
     try {
@@ -376,6 +381,52 @@ const AdminTools = () => {
     }
   };
 
+  const handleExportStudentListExcel = async () => {
+    setExportLoading(true);
+    try {
+      let query = supabase
+        .from('students')
+        .select('roll_number, name, batch, sex, medium, first_language, parent_name, phone_number, school_name, register_number')
+        .neq('batch', 'ALUMNI')
+        .order('batch', { ascending: true })
+        .order('roll_number', { ascending: true });
+
+      if (exportBatch !== 'ALL') query = query.eq('batch', exportBatch);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (!data?.length) { toast.error('No students found'); return; }
+
+      const csv = Papa.unparse({
+        fields: ['Reg No', 'Roll No', 'Name', 'Batch', 'Sex', 'Medium', 'First Language', 'Parent Name', 'Phone Number', 'School Name'],
+        data: data.map(s => [
+          s.register_number || '—',
+          s.roll_number     || '—',
+          s.name,
+          s.batch,
+          s.sex,
+          s.medium            || '—',
+          s.first_language    || '—',
+          s.parent_name       || '—',
+          s.phone_number      || '—',
+          s.school_name       || '—',
+        ])
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `Student_List_${exportBatch}_${format(new Date(), 'dd-MM-yyyy')}.csv`;
+      link.click();
+      toast.success(`✅ Exported ${data.length} students to Excel!`);
+    } catch (err: any) {
+      toast.error('Export failed: ' + err.message);
+      console.error(err);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   // LOCKED STATE UI
   if (!isAuthenticated) {
     return (
@@ -550,6 +601,40 @@ const AdminTools = () => {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Student List Excel Export */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <h3 className="text-lg font-bold text-slate-700 mb-2 flex items-center gap-2">
+          <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
+          Export Student List (Excel / CSV)
+        </h3>
+        <p className="text-slate-500 mb-4 text-sm">
+          Download a full student list for any batch in Excel (CSV) format with all admission details — name, batch, sex, roll no, medium, language, parent name, phone, and school.
+        </p>
+        <div className="flex flex-wrap gap-4 items-end bg-slate-50 p-4 rounded-xl border border-slate-100">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest pl-1 mb-1">Batch</label>
+            <select
+              value={exportBatch}
+              onChange={e => setExportBatch(e.target.value)}
+              className="px-4 py-2 border border-slate-200 bg-white rounded-lg outline-none focus:ring-2 focus:ring-emerald-100 font-semibold"
+            >
+              <option value="ALL">All Batches</option>
+              {batches.map(b => (
+                <option key={b.id} value={b.name}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={handleExportStudentListExcel}
+            disabled={exportLoading}
+            className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-md shadow-emerald-100 transition-all disabled:bg-slate-300 disabled:shadow-none"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            {exportLoading ? 'Exporting...' : 'Download Excel'}
+          </button>
         </div>
       </div>
 

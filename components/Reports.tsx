@@ -10,16 +10,16 @@ import toast from 'react-hot-toast';
 import Papa from 'papaparse';
 
 const Reports = () => {
-  const [activeTab, setActiveTab] = useState<'individual' | 'batch' | 'joins' | 'progress'>('individual');
+  const [activeTab, setActiveTab] = useState<'individual' | 'batch' | 'joins' | 'progress' | 'attendance_summary'>('individual');
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-800">Reports & Analytics</h1>
 
-      <div className="flex gap-2 border-b border-slate-200">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200">
         <button
           onClick={() => setActiveTab('individual')}
-          className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'individual'
+          className={`px-5 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'individual'
             ? 'border-primary text-primary'
             : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
@@ -27,8 +27,18 @@ const Reports = () => {
           Individual Report
         </button>
         <button
+          onClick={() => setActiveTab('attendance_summary')}
+          className={`px-5 py-3 font-medium text-sm transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'attendance_summary'
+            ? 'border-teal-600 text-teal-600'
+            : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+        >
+          <Users className="h-4 w-4" />
+          Attendance Summary
+        </button>
+        <button
           onClick={() => setActiveTab('batch')}
-          className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'batch'
+          className={`px-5 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'batch'
             ? 'border-primary text-primary'
             : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
@@ -37,7 +47,7 @@ const Reports = () => {
         </button>
         <button
           onClick={() => setActiveTab('joins')}
-          className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'joins'
+          className={`px-5 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'joins'
             ? 'border-primary text-primary'
             : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
@@ -46,7 +56,7 @@ const Reports = () => {
         </button>
         <button
           onClick={() => setActiveTab('progress')}
-          className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'progress'
+          className={`px-5 py-3 font-medium text-sm transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'progress'
             ? 'border-indigo-600 text-indigo-600'
             : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
@@ -57,6 +67,7 @@ const Reports = () => {
       </div>
 
       {activeTab === 'individual' && <IndividualReport />}
+      {activeTab === 'attendance_summary' && <AttendanceSummaryReport />}
       {activeTab === 'batch' && <BatchPDFReport />}
       {activeTab === 'joins' && <NewJoinsReport />}
       {activeTab === 'progress' && <ProgressReport />}
@@ -313,6 +324,331 @@ const IndividualReport = () => {
               </table>
             </div>
           </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Attendance Summary Report ────────────────────────────────────────────────
+const AttendanceSummaryReport = () => {
+  const { activeBatches } = useBatches();
+  const BATCHES = activeBatches.map(b => b.name);
+
+  const [selectedBatch, setSelectedBatch] = useState('');
+  const [fromDate, setFromDate] = useState(format(new Date(new Date().setDate(1)), 'yyyy-MM-dd'));
+  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [generating, setGenerating] = useState(false);
+  const [generatingExcel, setGeneratingExcel] = useState(false);
+  const [previewRows, setPreviewRows] = useState<any[]>([]);
+  const [isFetching, setIsFetching] = useState(false);
+
+  React.useEffect(() => {
+    if (BATCHES.length > 0 && !selectedBatch) setSelectedBatch(BATCHES[0]);
+  }, [BATCHES, selectedBatch]);
+
+  // Live preview when filters change
+  React.useEffect(() => {
+    if (!selectedBatch || !fromDate || !toDate) return;
+    const fetch = async () => {
+      setIsFetching(true);
+      try {
+        const { data: students } = await supabase
+          .from('students').select('id, name, roll_number, sex')
+          .eq('batch', selectedBatch).order('roll_number', { ascending: true });
+        if (!students?.length) { setPreviewRows([]); setIsFetching(false); return; }
+
+        // Date range in dd-MM-yyyy format used in attendance table
+        const from = format(new Date(fromDate), 'dd-MM-yyyy');
+        const to   = format(new Date(toDate),   'dd-MM-yyyy');
+
+        const { data: att } = await supabase
+          .from('attendance').select('student_id, date, status')
+          .in('student_id', students.map(s => s.id));
+
+        const rows = students.map(s => {
+          const records = (att || []).filter(a => {
+            if (a.student_id !== s.id) return false;
+            // compare dates lexicographically — works because dd-MM-yyyy with same format
+            const parts = a.date.split('-').map(Number);
+            const d = new Date(parts[2], parts[1] - 1, parts[0]);
+            const fParts = from.split('-').map(Number);
+            const fD = new Date(fParts[2], fParts[1] - 1, fParts[0]);
+            const tParts = to.split('-').map(Number);
+            const tD = new Date(tParts[2], tParts[1] - 1, tParts[0]);
+            return d >= fD && d <= tD;
+          });
+          const present = records.filter(r => r.status === 'Present').length;
+          const total   = records.length;
+          const absent  = total - present;
+          const pct     = total ? Math.round((present / total) * 100) : 0;
+          return { ...s, present, absent, total, pct };
+        });
+
+        setPreviewRows(rows);
+      } catch { setPreviewRows([]); }
+      finally { setIsFetching(false); }
+    };
+    fetch();
+  }, [selectedBatch, fromDate, toDate]);
+
+  const buildData = async () => {
+    const { data: students } = await supabase
+      .from('students').select('id, name, roll_number, sex')
+      .eq('batch', selectedBatch).order('roll_number', { ascending: true });
+    if (!students?.length) throw new Error('No students');
+
+    const from = format(new Date(fromDate), 'dd-MM-yyyy');
+    const to   = format(new Date(toDate),   'dd-MM-yyyy');
+
+    let allAtt: any[] = [];
+    let page = 0, hasMore = true;
+    while (hasMore) {
+      const { data } = await supabase.from('attendance').select('student_id, date, status')
+        .in('student_id', students.map(s => s.id))
+        .range(page * 1000, (page + 1) * 1000 - 1);
+      if (data?.length) { allAtt = [...allAtt, ...data]; if (data.length < 1000) hasMore = false; else page++; }
+      else hasMore = false;
+    }
+
+    return students.map(s => {
+      const records = allAtt.filter(a => {
+        if (a.student_id !== s.id) return false;
+        const parts = a.date.split('-').map(Number);
+        const d = new Date(parts[2], parts[1] - 1, parts[0]);
+        const fParts = from.split('-').map(Number);
+        const fD = new Date(fParts[2], fParts[1] - 1, fParts[0]);
+        const tParts = to.split('-').map(Number);
+        const tD = new Date(tParts[2], tParts[1] - 1, tParts[0]);
+        return d >= fD && d <= tD;
+      });
+      const present = records.filter(r => r.status === 'Present').length;
+      const total   = records.length;
+      const absent  = total - present;
+      const pct     = total ? Math.round((present / total) * 100) : 0;
+      return { ...s, present, absent, total, pct };
+    });
+  };
+
+  const generatePDF = async () => {
+    if (!selectedBatch) { toast.error('Select a batch'); return; }
+    setGenerating(true);
+    try {
+      const rows = await buildData();
+      const fromFmt = format(new Date(fromDate), 'dd-MM-yyyy');
+      const toFmt   = format(new Date(toDate),   'dd-MM-yyyy');
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const BLACK = [0,0,0] as [number,number,number];
+      const WHITE = [255,255,255] as [number,number,number];
+      const DARK  = [30,30,30] as [number,number,number];
+
+      // Header
+      doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(...BLACK);
+      doc.text('Wings Coaching Center, Karakunnu', 105, 14, { align: 'center' });
+      doc.setFontSize(11);
+      doc.text('Attendance Summary Report', 105, 21, { align: 'center' });
+      doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...DARK);
+      doc.text(`Batch: ${selectedBatch}`, 14, 28);
+      doc.text(`Period: ${fromFmt} to ${toFmt}`, 105, 28, { align: 'center' });
+      doc.text(`Generated: ${format(new Date(),'dd-MM-yyyy')}`, 196, 28, { align: 'right' });
+      doc.setDrawColor(...BLACK); doc.setLineWidth(0.4); doc.line(14, 31, 196, 31);
+
+      const head = [['Roll No', 'Student Name', 'Present', 'Absent', 'Total Days', 'Attendance %']];
+      const body = rows.map(r => [
+        r.roll_number || '—',
+        r.name,
+        r.present,
+        r.absent,
+        r.total,
+        `${r.pct}%`
+      ]);
+
+      (doc as any).autoTable({
+        startY: 34,
+        head,
+        body,
+        theme: 'grid',
+        styles: { fontSize: 9, halign: 'center', cellPadding: 2.5, textColor: [...BLACK] },
+        headStyles: { fillColor: [...BLACK], textColor: [...WHITE], fontStyle: 'bold', fontSize: 9 },
+        columnStyles: {
+          0: { cellWidth: 18 },
+          1: { cellWidth: 60, halign: 'left' },
+          2: { cellWidth: 22 },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 22 },
+          5: { cellWidth: 26 },
+        },
+        didParseCell: (data: any) => {
+          if (data.section === 'body' && data.column.index === 5) {
+            const pct = parseInt(data.cell.raw);
+            data.cell.styles.textColor = pct >= 75 ? [22,163,74] : pct >= 50 ? [202,138,4] : [220,38,38];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
+        alternateRowStyles: { fillColor: [250,250,250] },
+        tableLineColor: [...BLACK],
+        tableLineWidth: 0.2,
+      });
+
+      const finalY = (doc as any).lastAutoTable.finalY + 8;
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...DARK);
+      const total = rows.reduce((s, r) => s + r.total, 0);
+      const presentTotal = rows.reduce((s, r) => s + r.present, 0);
+      const avg = total ? Math.round((presentTotal / total) * 100) : 0;
+      doc.text(`Total Students: ${rows.length}  |  Avg Attendance: ${avg}%`, 14, finalY);
+      doc.setFont('helvetica','italic'); doc.setFontSize(6.5); doc.setTextColor(120,120,120);
+      doc.text('Wings Attendance Tracker', 196, finalY, { align: 'right' });
+
+      doc.save(`Attendance_Summary_${selectedBatch}_${fromFmt}_to_${toFmt}.pdf`);
+      toast.success('✅ Attendance Summary PDF Downloaded!');
+    } catch (err: any) {
+      console.error(err); toast.error('Failed: ' + err.message);
+    } finally { setGenerating(false); }
+  };
+
+  const generateExcel = async () => {
+    if (!selectedBatch) { toast.error('Select a batch'); return; }
+    setGeneratingExcel(true);
+    try {
+      const rows = await buildData();
+      const fromFmt = format(new Date(fromDate), 'dd-MM-yyyy');
+      const toFmt   = format(new Date(toDate),   'dd-MM-yyyy');
+      const csv = Papa.unparse({
+        fields: ['Roll No', 'Student Name', 'Sex', 'Present', 'Absent', 'Total Days', 'Attendance %'],
+        data: rows.map(r => [r.roll_number || '—', r.name, r.sex, r.present, r.absent, r.total, `${r.pct}%`])
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `Attendance_Summary_${selectedBatch}_${fromFmt}_to_${toFmt}.csv`;
+      link.click();
+      toast.success('✅ Attendance Summary Excel Downloaded!');
+    } catch (err: any) {
+      console.error(err); toast.error('Failed: ' + err.message);
+    } finally { setGeneratingExcel(false); }
+  };
+
+  const overallAvg = previewRows.length
+    ? Math.round(previewRows.reduce((s, r) => s + r.pct, 0) / previewRows.length)
+    : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Controls */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-11 h-11 bg-teal-600 rounded-xl flex items-center justify-center">
+            <Users className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-black text-slate-800">Attendance Summary Report</h2>
+            <p className="text-slate-500 text-sm">Select a batch and date range to view & print attendance summary</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Batch</label>
+            <div className="relative">
+              <select value={selectedBatch} onChange={e => setSelectedBatch(e.target.value)}
+                className="w-full pl-4 pr-8 py-2.5 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-teal-100 font-semibold appearance-none">
+                {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">From Date</label>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-100 font-semibold" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">To Date</label>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-100 font-semibold" />
+          </div>
+        </div>
+
+        {/* Stats bar */}
+        {previewRows.length > 0 && (
+          <div className="flex flex-wrap gap-4 mb-5 p-3 bg-teal-50 rounded-xl border border-teal-100">
+            <div className="text-center min-w-[80px]">
+              <p className="text-xs font-bold text-teal-600 uppercase tracking-widest">Students</p>
+              <p className="text-2xl font-black text-teal-700">{previewRows.length}</p>
+            </div>
+            <div className="text-center min-w-[80px]">
+              <p className="text-xs font-bold text-green-600 uppercase tracking-widest">Avg Attendance</p>
+              <p className={`text-2xl font-black ${overallAvg >= 75 ? 'text-green-600' : overallAvg >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>{overallAvg}%</p>
+            </div>
+            <div className="text-center min-w-[80px]">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">≥75%</p>
+              <p className="text-2xl font-black text-slate-700">{previewRows.filter(r => r.pct >= 75).length}</p>
+            </div>
+            <div className="text-center min-w-[80px]">
+              <p className="text-xs font-bold text-red-500 uppercase tracking-widest">&lt;75%</p>
+              <p className="text-2xl font-black text-red-600">{previewRows.filter(r => r.pct < 75).length}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Download buttons */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button onClick={generatePDF} disabled={generating || !selectedBatch}
+            className="flex items-center justify-center gap-2 px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl shadow-lg shadow-teal-200 transition-all disabled:opacity-50 disabled:shadow-none flex-1">
+            <FileDown className="h-5 w-5" />
+            {generating ? 'Generating PDF...' : 'Download Attendance PDF'}
+          </button>
+          <button onClick={generateExcel} disabled={generatingExcel || !selectedBatch}
+            className="flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:shadow-none flex-1">
+            <FileSpreadsheet className="h-5 w-5" />
+            {generatingExcel ? 'Generating...' : 'Download as Excel'}
+          </button>
+        </div>
+      </div>
+
+      {/* Live Preview Table */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="font-black text-slate-800">Preview — {selectedBatch || '...'} ({previewRows.length} students)</h3>
+          {isFetching && <span className="text-xs font-bold text-teal-600 animate-pulse">Loading...</span>}
+        </div>
+        {previewRows.length === 0 && !isFetching ? (
+          <div className="p-10 text-center text-slate-400 font-medium">No data for selected batch/range</div>
+        ) : (
+          <div className="overflow-x-auto max-h-[450px]">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
+                <tr>
+                  <th className="px-4 py-3 w-12 text-center">Roll</th>
+                  <th className="px-4 py-3">Student Name</th>
+                  <th className="px-4 py-3 text-center text-green-700">Present</th>
+                  <th className="px-4 py-3 text-center text-red-600">Absent</th>
+                  <th className="px-4 py-3 text-center">Total</th>
+                  <th className="px-4 py-3 text-center">Attendance %</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {previewRows.map((r, i) => (
+                  <tr key={r.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                    <td className="px-4 py-3 text-center font-bold text-slate-500 text-xs">{r.roll_number || '—'}</td>
+                    <td className="px-4 py-3 font-bold text-slate-800 uppercase">{r.name}</td>
+                    <td className="px-4 py-3 text-center font-bold text-green-600">{r.present}</td>
+                    <td className="px-4 py-3 text-center font-bold text-red-500">{r.absent}</td>
+                    <td className="px-4 py-3 text-center text-slate-600 font-semibold">{r.total}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-black ${
+                        r.pct >= 75 ? 'bg-green-100 text-green-700' :
+                        r.pct >= 50 ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'}`}>
+                        {r.pct}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

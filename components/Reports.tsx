@@ -407,25 +407,34 @@ const AttendanceSummaryReport = () => {
     });
   }, []);
 
-  // Live preview — uses the SAME paginated function as PDF/Excel
+  // Clear preview if filters change to avoid stale data
   React.useEffect(() => {
+    setPreviewRows([]);
+  }, [selectedBatch, fromDate, toDate]);
+
+  const handleGenerate = async () => {
     if (!selectedBatch || !fromDate || !toDate) return;
-    let cancelled = false;
     setIsFetching(true);
-    computeRows(selectedBatch, fromDate, toDate)
-      .then(rows => { if (!cancelled) setPreviewRows(rows); })
-      .catch(() => { if (!cancelled) setPreviewRows([]); toast.error('Failed to load preview data'); })
-      .finally(() => { if (!cancelled) setIsFetching(false); });
-    return () => { cancelled = true; };
-  }, [selectedBatch, fromDate, toDate, computeRows]);
+    try {
+      const rows = await computeRows(selectedBatch, fromDate, toDate);
+      setPreviewRows(rows);
+      if (!rows.length) toast.error('No students found for this batch/range');
+      else toast.success(`Report ready - ${rows.length} students`);
+    } catch (err: any) {
+      setPreviewRows([]);
+      toast.error('Failed to load preview data: ' + err.message);
+    } finally {
+      setIsFetching(false);
+    }
+  };
 
 
   const generatePDF = async () => {
     if (!selectedBatch) { toast.error('Select a batch'); return; }
     setGenerating(true);
     try {
-      const rows = await computeRows(selectedBatch, fromDate, toDate);
-      if (!rows.length) { toast.error('No students found'); return; }
+      const rows = previewRows;
+      if (!rows.length) { toast.error('Generate report first'); setGenerating(false); return; }
       const fromFmt = format(new Date(fromDate), 'dd-MM-yyyy');
       const toFmt   = format(new Date(toDate),   'dd-MM-yyyy');
 
@@ -502,8 +511,8 @@ const AttendanceSummaryReport = () => {
     if (!selectedBatch) { toast.error('Select a batch'); return; }
     setGeneratingExcel(true);
     try {
-      const rows = await computeRows(selectedBatch, fromDate, toDate);
-      if (!rows.length) { toast.error('No students found'); return; }
+      const rows = previewRows;
+      if (!rows.length) { toast.error('Generate report first'); setGeneratingExcel(false); return; }
       const fromFmt = format(new Date(fromDate), 'dd-MM-yyyy');
       const toFmt   = format(new Date(toDate),   'dd-MM-yyyy');
       const csv = Papa.unparse({
@@ -584,18 +593,29 @@ const AttendanceSummaryReport = () => {
           </div>
         )}
 
-        {/* Download buttons */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button onClick={generatePDF} disabled={generating || !selectedBatch}
-            className="flex items-center justify-center gap-2 px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl shadow-lg shadow-teal-200 transition-all disabled:opacity-50 disabled:shadow-none flex-1">
-            <FileDown className="h-5 w-5" />
-            {generating ? 'Generating PDF...' : 'Download Attendance PDF'}
+        {/* Action buttons */}
+        <div className="flex flex-col gap-4">
+          <button onClick={handleGenerate} disabled={isFetching || !selectedBatch}
+            className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-xl shadow-lg shadow-teal-200 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-base">
+            {isFetching
+              ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Generating...</>
+              : <><Search className="h-5 w-5" /> Generate Report</>}
           </button>
-          <button onClick={generateExcel} disabled={generatingExcel || !selectedBatch}
-            className="flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:shadow-none flex-1">
-            <FileSpreadsheet className="h-5 w-5" />
-            {generatingExcel ? 'Generating...' : 'Download as Excel'}
-          </button>
+
+          {previewRows.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button onClick={generatePDF} disabled={generating || !selectedBatch}
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:shadow-none flex-1">
+                <FileDown className="h-5 w-5" />
+                {generating ? 'Generating PDF...' : 'Download Attendance PDF'}
+              </button>
+              <button onClick={generateExcel} disabled={generatingExcel || !selectedBatch}
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:shadow-none flex-1">
+                <FileSpreadsheet className="h-5 w-5" />
+                {generatingExcel ? 'Generating...' : 'Download as Excel'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

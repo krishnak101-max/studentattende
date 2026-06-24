@@ -375,6 +375,7 @@ const AttendanceSummaryReport = () => {
         .from('attendance')
         .select('student_id, date, status')
         .in('student_id', studentIds)
+        .order('date', { ascending: true })
         .range(page * 1000, (page + 1) * 1000 - 1);
       if (error) throw error;
       if (data?.length) {

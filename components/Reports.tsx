@@ -347,79 +347,56 @@ const AttendanceSummaryReport = () => {
     if (BATCHES.length > 0 && !selectedBatch) setSelectedBatch(BATCHES[0]);
   }, [BATCHES, selectedBatch]);
 
-  // Live preview when filters change
-  React.useEffect(() => {
-    if (!selectedBatch || !fromDate || !toDate) return;
-    const fetch = async () => {
-      setIsFetching(true);
-      try {
-        const { data: students } = await supabase
-          .from('students').select('id, name, roll_number, sex')
-          .eq('batch', selectedBatch).order('roll_number', { ascending: true });
-        if (!students?.length) { setPreviewRows([]); setIsFetching(false); return; }
-
-        // Date range in dd-MM-yyyy format used in attendance table
-        const from = format(new Date(fromDate), 'dd-MM-yyyy');
-        const to   = format(new Date(toDate),   'dd-MM-yyyy');
-
-        const { data: att } = await supabase
-          .from('attendance').select('student_id, date, status')
-          .in('student_id', students.map(s => s.id));
-
-        const rows = students.map(s => {
-          const records = (att || []).filter(a => {
-            if (a.student_id !== s.id) return false;
-            // compare dates lexicographically — works because dd-MM-yyyy with same format
-            const parts = a.date.split('-').map(Number);
-            const d = new Date(parts[2], parts[1] - 1, parts[0]);
-            const fParts = from.split('-').map(Number);
-            const fD = new Date(fParts[2], fParts[1] - 1, fParts[0]);
-            const tParts = to.split('-').map(Number);
-            const tD = new Date(tParts[2], tParts[1] - 1, tParts[0]);
-            return d >= fD && d <= tD;
-          });
-          const present = records.filter(r => r.status === 'Present').length;
-          const total   = records.length;
-          const absent  = total - present;
-          const pct     = total ? Math.round((present / total) * 100) : 0;
-          return { ...s, present, absent, total, pct };
-        });
-
-        setPreviewRows(rows);
-      } catch { setPreviewRows([]); }
-      finally { setIsFetching(false); }
-    };
-    fetch();
-  }, [selectedBatch, fromDate, toDate]);
-
-  const buildData = async () => {
-    const { data: students } = await supabase
+  // ── Shared core function: fetches ALL attendance with pagination ──
+  // This is the single source of truth for BOTH the screen preview and PDF/Excel.
+  // Previously the preview lacked pagination and Supabase silently capped at 1000 rows,
+  // causing students beyond that limit to show 0 attendance.
+  const computeRows = React.useCallback(async (batch: string, from_yyyy: string, to_yyyy: string) => {
+    // 1. Fetch students for the batch
+    const { data: students, error: sErr } = await supabase
       .from('students').select('id, name, roll_number, sex')
-      .eq('batch', selectedBatch).order('roll_number', { ascending: true });
-    if (!students?.length) throw new Error('No students');
+      .eq('batch', batch).order('roll_number', { ascending: true });
+    if (sErr) throw sErr;
+    if (!students?.length) return [];
 
-    const from = format(new Date(fromDate), 'dd-MM-yyyy');
-    const to   = format(new Date(toDate),   'dd-MM-yyyy');
+    const studentIds = students.map(s => s.id);
 
+    // 2. Parse the date range boundaries once
+    const fD = new Date(from_yyyy);   // yyyy-MM-dd → JS Date (local midnight)
+    const tD = new Date(to_yyyy);
+    fD.setHours(0, 0, 0, 0);
+    tD.setHours(23, 59, 59, 999);
+
+    // 3. Fetch ALL attendance records with pagination (no silent 1000-row cap)
     let allAtt: any[] = [];
     let page = 0, hasMore = true;
     while (hasMore) {
-      const { data } = await supabase.from('attendance').select('student_id, date, status')
-        .in('student_id', students.map(s => s.id))
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('student_id, date, status')
+        .in('student_id', studentIds)
         .range(page * 1000, (page + 1) * 1000 - 1);
-      if (data?.length) { allAtt = [...allAtt, ...data]; if (data.length < 1000) hasMore = false; else page++; }
-      else hasMore = false;
+      if (error) throw error;
+      if (data?.length) {
+        allAtt = [...allAtt, ...data];
+        hasMore = data.length === 1000; // only continue if we got a full page
+        page++;
+      } else {
+        hasMore = false;
+      }
     }
 
+    // 4. Helper: parse "dd-MM-yyyy" stored in DB → JS Date
+    const parseDBDate = (s: string): Date => {
+      const [d, m, y] = s.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    };
+
+    // 5. Map each student → their filtered attendance stats
     return students.map(s => {
       const records = allAtt.filter(a => {
         if (a.student_id !== s.id) return false;
-        const parts = a.date.split('-').map(Number);
-        const d = new Date(parts[2], parts[1] - 1, parts[0]);
-        const fParts = from.split('-').map(Number);
-        const fD = new Date(fParts[2], fParts[1] - 1, fParts[0]);
-        const tParts = to.split('-').map(Number);
-        const tD = new Date(tParts[2], tParts[1] - 1, tParts[0]);
+        const d = parseDBDate(a.date);
         return d >= fD && d <= tD;
       });
       const present = records.filter(r => r.status === 'Present').length;
@@ -428,13 +405,27 @@ const AttendanceSummaryReport = () => {
       const pct     = total ? Math.round((present / total) * 100) : 0;
       return { ...s, present, absent, total, pct };
     });
-  };
+  }, []);
+
+  // Live preview — uses the SAME paginated function as PDF/Excel
+  React.useEffect(() => {
+    if (!selectedBatch || !fromDate || !toDate) return;
+    let cancelled = false;
+    setIsFetching(true);
+    computeRows(selectedBatch, fromDate, toDate)
+      .then(rows => { if (!cancelled) setPreviewRows(rows); })
+      .catch(() => { if (!cancelled) setPreviewRows([]); toast.error('Failed to load preview data'); })
+      .finally(() => { if (!cancelled) setIsFetching(false); });
+    return () => { cancelled = true; };
+  }, [selectedBatch, fromDate, toDate, computeRows]);
+
 
   const generatePDF = async () => {
     if (!selectedBatch) { toast.error('Select a batch'); return; }
     setGenerating(true);
     try {
-      const rows = await buildData();
+      const rows = await computeRows(selectedBatch, fromDate, toDate);
+      if (!rows.length) { toast.error('No students found'); return; }
       const fromFmt = format(new Date(fromDate), 'dd-MM-yyyy');
       const toFmt   = format(new Date(toDate),   'dd-MM-yyyy');
 
@@ -511,7 +502,8 @@ const AttendanceSummaryReport = () => {
     if (!selectedBatch) { toast.error('Select a batch'); return; }
     setGeneratingExcel(true);
     try {
-      const rows = await buildData();
+      const rows = await computeRows(selectedBatch, fromDate, toDate);
+      if (!rows.length) { toast.error('No students found'); return; }
       const fromFmt = format(new Date(fromDate), 'dd-MM-yyyy');
       const toFmt   = format(new Date(toDate),   'dd-MM-yyyy');
       const csv = Papa.unparse({

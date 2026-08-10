@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { AttendanceRecord } from '../types';
 import { useBatches } from '../context/BatchContext';
-import { Calendar as CalendarIcon, Save, Search, Check, X, CheckSquare, Square, ArrowLeft, AlertCircle, Info, Share2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Save, Search, Check, X, CheckSquare, Square, ArrowLeft, AlertCircle, Info, Share2, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Attendance = () => {
@@ -22,6 +22,8 @@ const Attendance = () => {
     const [saving, setSaving] = useState(false);
     const [showSummary, setShowSummary] = useState(false);
     const [absentees, setAbsentees] = useState<string[]>([]);
+    const [isSpecialClass, setIsSpecialClass] = useState(false);
+    const [specialClassLabel, setSpecialClassLabel] = useState('');
 
     useEffect(() => {
         const batchParam = searchParams.get('batch');
@@ -161,9 +163,20 @@ const Attendance = () => {
     };
 
     const copyToWhatsapp = () => {
-        const text = `*Wings Coaching Center*\nDate: ${selectedDate}\nBatch: ${selectedBatch}\n\n*Absentees:*\n${absentees.length > 0 ? absentees.map((name, i) => `${i + 1}. ${name}`).join('\n') : 'Nil'}`;
+        const header = isSpecialClass
+            ? `*Wings Coaching Center - Special Class*\n📚 ${specialClassLabel || 'Special Class'}\nDate: ${selectedDate}\nBatch: ${selectedBatch}`
+            : `*Wings Coaching Center*\nDate: ${selectedDate}\nBatch: ${selectedBatch}`;
+        const text = `${header}\n\n*Absentees:*\n${absentees.length > 0 ? absentees.map((name, i) => `${i + 1}. ${name}`).join('\n') : 'Nil'}`;
         navigator.clipboard.writeText(text);
-        toast.success('Copied to clipboard');
+        toast.success('Copied to clipboard!');
+    };
+
+    const handleSpecialClassCopy = () => {
+        const absent = records.filter(r => r.status === 'Absent').map(r => r.name);
+        const header = `*Wings Coaching Center - Special Class*\n📚 ${specialClassLabel || 'Special Class'}\nDate: ${selectedDate}\nBatch: ${selectedBatch}`;
+        const text = `${header}\n\n*Absentees:*\n${absent.length > 0 ? absent.map((name, i) => `${i + 1}. ${name}`).join('\n') : 'Nil'}`;
+        navigator.clipboard.writeText(text);
+        toast.success('Absentee list copied to clipboard!');
     };
 
     const filteredRecords = records.filter(r =>
@@ -182,8 +195,10 @@ const Attendance = () => {
                         <ArrowLeft className="h-4 w-4" />
                         Back to Dashboard
                     </button>
-                    <h1 className="text-2xl font-bold text-slate-800">Daily Attendance</h1>
-                    <p className="text-slate-500">Manage student presence</p>
+                    <h1 className="text-2xl font-bold text-slate-800">
+                        {isSpecialClass ? '⚡ Special Class Attendance' : 'Daily Attendance'}
+                    </h1>
+                    <p className="text-slate-500">{isSpecialClass ? 'WhatsApp copy only — not saved to database' : 'Manage student presence'}</p>
                 </div>
                 <div className="flex items-center gap-3 bg-white p-2 rounded-lg border shadow-sm">
                     <CalendarIcon className="text-slate-400 h-5 w-5 ml-2" />
@@ -215,7 +230,37 @@ const Attendance = () => {
                         {batch}
                     </button>
                 ))}
+                {/* Special Class Toggle */}
+                <button
+                    onClick={() => { setIsSpecialClass(v => !v); setSpecialClassLabel(''); }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all shadow-sm border ${
+                        isSpecialClass
+                            ? 'bg-amber-400 text-white border-amber-400 shadow-md'
+                            : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'
+                    }`}
+                >
+                    <Zap className={`h-4 w-4 ${isSpecialClass ? 'fill-white' : ''}`} />
+                    {isSpecialClass ? 'Special Class ON' : 'Special Class'}
+                </button>
             </div>
+
+            {/* Special Class Description Input */}
+            {isSpecialClass && (
+                <div className="flex items-center gap-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3">
+                    <Zap className="h-5 w-5 text-amber-500 fill-amber-400 shrink-0" />
+                    <div className="flex-1">
+                        <p className="text-xs font-bold text-amber-700 mb-1">Special Class Description</p>
+                        <input
+                            type="text"
+                            placeholder="e.g. Evening class - Maths Revision"
+                            value={specialClassLabel}
+                            onChange={e => setSpecialClassLabel(e.target.value)}
+                            className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-400"
+                        />
+                    </div>
+                    <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-1 rounded-full shrink-0">Not saved to DB</span>
+                </div>
+            )}
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="p-4 border-b flex flex-col xl:flex-row gap-4 justify-between items-center sticky top-0 bg-white z-10">
@@ -319,18 +364,29 @@ const Attendance = () => {
                 </div>
 
                 <div className="p-4 bg-slate-50 border-t flex justify-end sticky bottom-0 z-20">
-                    <button
-                        onClick={saveAttendance}
-                        disabled={loading || saving}
-                        className="flex items-center gap-2 bg-primary hover:bg-blue-800 text-white px-8 py-3 rounded-lg font-bold shadow-lg shadow-blue-900/20 disabled:opacity-50 transition-all"
-                    >
-                        {saving ? 'Saving...' : (
-                            <>
-                                <Save className="h-5 w-5" />
-                                Save Attendance
-                            </>
-                        )}
-                    </button>
+                    {isSpecialClass ? (
+                        <button
+                            onClick={handleSpecialClassCopy}
+                            disabled={loading}
+                            className="flex items-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white px-8 py-3 rounded-lg font-bold shadow-lg disabled:opacity-50 transition-all"
+                        >
+                            <Share2 className="h-5 w-5" />
+                            Copy Absentees to WhatsApp
+                        </button>
+                    ) : (
+                        <button
+                            onClick={saveAttendance}
+                            disabled={loading || saving}
+                            className="flex items-center gap-2 bg-primary hover:bg-blue-800 text-white px-8 py-3 rounded-lg font-bold shadow-lg shadow-blue-900/20 disabled:opacity-50 transition-all"
+                        >
+                            {saving ? 'Saving...' : (
+                                <>
+                                    <Save className="h-5 w-5" />
+                                    Save Attendance
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
             </div>
 

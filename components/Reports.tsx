@@ -353,11 +353,36 @@ const AttendanceSummaryReport = () => {
   // causing students beyond that limit to show 0 attendance.
   const computeRows = React.useCallback(async (batch: string, from_yyyy: string, to_yyyy: string) => {
     // 1. Fetch students for the batch
-    const { data: students, error: sErr } = await supabase
-      .from('students').select('id, name, roll_number, sex')
-      .eq('batch', batch).order('roll_number', { ascending: true });
+    const { data: rawStudents, error: sErr } = await supabase
+      .from('students').select('id, name, roll_number, sex, first_language')
+      .eq('batch', batch);
     if (sErr) throw sErr;
-    if (!students?.length) return [];
+    if (!rawStudents?.length) return [];
+
+    // Sort Logic: Roll Number First -> Female (A-Z) -> Male (A-Z) -> Language -> Name
+    const students = [...rawStudents].sort((a, b) => {
+      const rollA = parseInt(a.roll_number || '0', 10);
+      const rollB = parseInt(b.roll_number || '0', 10);
+
+      if (rollA > 0 && rollB > 0) {
+        if (rollA !== rollB) return rollA - rollB;
+      } else if (rollA > 0) {
+        return -1;
+      } else if (rollB > 0) {
+        return 1;
+      }
+
+      if (a.sex !== b.sex) {
+        return a.sex === 'Female' ? -1 : 1;
+      }
+
+      const langOrder: Record<string, number> = { 'Malayalam': 1, 'Arabic': 2, 'Sanskrit': 3, 'Urdu': 4 };
+      const lA = langOrder[a.first_language || 'Malayalam'] || 99;
+      const lB = langOrder[b.first_language || 'Malayalam'] || 99;
+      if (lA !== lB) return lA - lB;
+
+      return (a.name || '').localeCompare(b.name || '');
+    });
 
     const studentIds = students.map(s => s.id);
 

@@ -313,18 +313,27 @@ const AdminTools = () => {
       // 1. Girls first, then Boys
       // 2. Language: Malayalam(1), Sanskrit(2), Arabic(3), Urdu(4)
       // 3. Name alphabetical
-      const langOrder: Record<string, number> = { 'Malayalam': 1, 'Sanskrit': 2, 'Arabic': 3, 'Urdu': 4 };
-
       const sortedStudents = [...data].sort((a, b) => {
-        // Sex: Female before Male
-        if (a.sex !== b.sex) return a.sex === 'Female' ? -1 : 1;
-        
-        // Language
+        const rollA = parseInt(a.roll_number || '0', 10);
+        const rollB = parseInt(b.roll_number || '0', 10);
+
+        if (rollA > 0 && rollB > 0) {
+            if (rollA !== rollB) return rollA - rollB;
+        } else if (rollA > 0) {
+            return -1;
+        } else if (rollB > 0) {
+            return 1;
+        }
+
+        if (a.sex !== b.sex) {
+            return a.sex === 'Female' ? -1 : 1;
+        }
+
+        const langOrder: Record<string, number> = { 'Malayalam': 1, 'Arabic': 2, 'Sanskrit': 3, 'Urdu': 4 };
         const lA = langOrder[a.first_language || 'Malayalam'] || 99;
         const lB = langOrder[b.first_language || 'Malayalam'] || 99;
         if (lA !== lB) return lA - lB;
 
-        // Name
         return (a.name || '').localeCompare(b.name || '');
       });
 
@@ -387,15 +396,40 @@ const AdminTools = () => {
       let query = supabase
         .from('students')
         .select('roll_number, name, batch, sex, medium, first_language, parent_name, phone_number, school_name, register_number')
-        .neq('batch', 'ALUMNI')
-        .order('batch', { ascending: true })
-        .order('roll_number', { ascending: true });
+        .neq('batch', 'ALUMNI');
 
       if (exportBatch !== 'ALL') query = query.eq('batch', exportBatch);
 
-      const { data, error } = await query;
+      const { data: rawData, error } = await query;
       if (error) throw error;
-      if (!data?.length) { toast.error('No students found'); return; }
+      if (!rawData?.length) { toast.error('No students found'); return; }
+
+      // Sort by Batch, then identical class sorting
+      const data = [...rawData].sort((a, b) => {
+        if (a.batch !== b.batch) return a.batch.localeCompare(b.batch);
+
+        const rollA = parseInt(a.roll_number || '0', 10);
+        const rollB = parseInt(b.roll_number || '0', 10);
+
+        if (rollA > 0 && rollB > 0) {
+            if (rollA !== rollB) return rollA - rollB;
+        } else if (rollA > 0) {
+            return -1;
+        } else if (rollB > 0) {
+            return 1;
+        }
+
+        if (a.sex !== b.sex) {
+            return a.sex === 'Female' ? -1 : 1;
+        }
+
+        const langOrder: Record<string, number> = { 'Malayalam': 1, 'Arabic': 2, 'Sanskrit': 3, 'Urdu': 4 };
+        const lA = langOrder[a.first_language || 'Malayalam'] || 99;
+        const lB = langOrder[b.first_language || 'Malayalam'] || 99;
+        if (lA !== lB) return lA - lB;
+
+        return (a.name || '').localeCompare(b.name || '');
+      });
 
       const csv = Papa.unparse({
         fields: ['Reg No', 'Roll No', 'Name', 'Batch', 'Sex', 'Medium', 'First Language', 'Parent Name', 'Phone Number', 'School Name'],

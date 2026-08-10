@@ -232,7 +232,12 @@ const Attendance = () => {
                 ))}
                 {/* Special Class Toggle */}
                 <button
-                    onClick={() => { setIsSpecialClass(v => !v); setSpecialClassLabel(''); }}
+                    onClick={() => {
+                        const turningOff = isSpecialClass;
+                        setIsSpecialClass(v => !v);
+                        setSpecialClassLabel('');
+                        if (turningOff) fetchBatchData(); // Re-fetch real DB data instantly
+                    }}
                     className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all shadow-sm border ${
                         isSpecialClass
                             ? 'bg-amber-400 text-white border-amber-400 shadow-md'
